@@ -9,6 +9,8 @@ import {
   cacheTeacherMeta, cacheSchoolConfig,
 } from '../../../lib/offlineDB'
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
+import { attachDepartmentLinks, subjectFitsDepartment } from '../../../lib/departmentUtils'
 
 const PHASES = [
   { key: 'ca1', label: 'CA 1' },
@@ -20,6 +22,7 @@ const EnterGrades = () => {
   const { user, schoolId } = useAuthStore()
   const { currentSession, currentTerm } = useTermStore()
   const { checkPending } = useOnlineStatus()
+  const { departmentSectionName, departmentMode } = useDepartmentConfig()
 
   const [staffId, setStaffId] = useState(null)
   const [assignedClasses, setAssignedClasses] = useState([])
@@ -52,7 +55,7 @@ const EnterGrades = () => {
 
         const { data: classData } = await supabase
     .from('teacher_classes')
-    .select('*, classes(id, name, section), arms(id, name)')
+    .select('*, classes(id, name, section), arms(id, name, department_id)')
     .eq('staff_id', staffData.id)
         setAssignedClasses(classData || [])
 
@@ -81,26 +84,35 @@ const EnterGrades = () => {
     const fetchSubjects = async () => {
       if (!selectedClass) return
       const section = selectedClass.classes.section
+      let list = []
       if (navigator.onLine) {
+        // section = this class's section, or null = "All Sections" core subject
         const { data } = await supabase
           .from('subjects')
           .select('*')
           .eq('school_id', schoolId)
           .eq('is_active', true)
-          .or(`section.eq.${section},section.eq.Both`)
+          .or(`section.eq.${section},section.is.null`)
           .order('name')
-        setSubjects(data || [])
+        list = await attachDepartmentLinks(data || [])
       } else {
         const cached = await getCachedSubjects()
-        const filtered = cached
-          .filter(s => s.section === section || s.section === 'Both')
+        list = cached
+          .filter(s => !s.section || s.section === section)
           .sort((a, b) => a.name.localeCompare(b.name))
-        setSubjects(filtered)
       }
+
+      // By-arm departments: a teacher assigned to one arm only sees that arm's subjects
+      if (section === departmentSectionName && departmentMode === 'by_arm' && selectedClass.arm_id) {
+        const armDepartmentId = selectedClass.arms?.department_id || null
+        list = list.filter(s => subjectFitsDepartment(s, armDepartmentId))
+      }
+
+      setSubjects(list)
       setSelectedSubject(null)
     }
     fetchSubjects()
-  }, [selectedClass])
+  }, [selectedClass, departmentSectionName, departmentMode])
 
   // Load students & existing grades when class/subject/term changes
   useEffect(() => {
@@ -122,7 +134,7 @@ const EnterGrades = () => {
       if (navigator.onLine) {
         const query = supabase
           .from('students')
-          .select('id, first_name, middle_name, last_name, admission_number')
+          .select('id, first_name, middle_name, last_name, admission_number, arm_id, department_id')
           .eq('class_id', selectedClass.classes.id)
           .eq('status', 'Active')
           .order('first_name')
@@ -136,9 +148,26 @@ const EnterGrades = () => {
           : cached
         ).sort((a, b) => a.first_name.localeCompare(b.first_name))
       }
+      // Departments: only students whose department takes this subject
+      if (departmentSectionName && selectedClass.classes.section === departmentSectionName) {
+        const armDepartments = {}
+        if (departmentMode === 'by_arm') {
+          assignedClasses.forEach(c => { if (c.arms) armDepartments[c.arms.id] = c.arms.department_id })
+          if (navigator.onLine) {
+            const { data: armRows } = await supabase
+              .from('arms').select('id, department_id').eq('class_id', selectedClass.classes.id)
+            armRows?.forEach(a => { armDepartments[a.id] = a.department_id })
+          }
+        }
+        studentData = studentData.filter(s => {
+          const studentDepartmentId = departmentMode === 'by_arm' ? armDepartments[s.arm_id] : s.department_id
+          return subjectFitsDepartment(selectedSubject, studentDepartmentId)
+        })
+      }
       setStudents(studentData)
 
-      // Fetch existing grades (only possible online — offline starts blank,
+      // Fetch existing grades
+      //  (only possible online — offline starts blank,
       // same as a student with no prior score for this phase)
       let gradesData = null
       if (navigator.onLine) {

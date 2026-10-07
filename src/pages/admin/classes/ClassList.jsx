@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
-import { SECTIONS } from '../../../lib/constants'
+import { useSections } from '../../../hooks/useSections'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
 import { PlusCircle, ChevronDown, ChevronUp, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 
 const ClassList = () => {
   const { schoolId } = useAuthStore()
+  const { sections } = useSections()
+  const { departmentSectionName, departmentMode, departments } = useDepartmentConfig()
   const [classes, setClasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(null)
@@ -16,7 +19,8 @@ const ClassList = () => {
   // New class form
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', section: '', has_arms: false })
-  const [arms, setArms] = useState([''])
+  const [arms, setArms] = useState([{ name: '', department_id: '' }])
+  const showArmDepartmentPicker = form.section === departmentSectionName && departmentMode === 'by_arm'
   const [saving, setSaving] = useState(false)
 
   // Edit
@@ -39,10 +43,10 @@ const ClassList = () => {
     if (schoolId) fetchClasses()
   }, [schoolId])
 
-  const handleAddArm = () => setArms([...arms, ''])
-  const handleArmChange = (index, value) => {
+  const handleAddArm = () => setArms([...arms, { name: '', department_id: '' }])
+  const handleArmChange = (index, field, value) => {
     const updated = [...arms]
-    updated[index] = value
+    updated[index] = { ...updated[index], [field]: value }
     setArms(updated)
   }
   const handleRemoveArm = (index) => {
@@ -71,14 +75,28 @@ const ClassList = () => {
 
         // If has arms, add new arms
         if (form.has_arms) {
-          const validArms = arms.filter(a => a.trim())
+          const validArms = arms.filter(a => a.name.trim())
           const existingArms = editingClass.arms?.map(a => a.name) || []
-          const newArms = validArms.filter(a => !existingArms.includes(a))
+          const newArms = validArms.filter(a => !existingArms.includes(a.name))
 
           if (newArms.length > 0) {
             await supabase.from('arms').insert(
-              newArms.map(name => ({ class_id: editingClass.id, name }))
+              newArms.map(a => ({ class_id: editingClass.id, name: a.name, department_id: a.department_id || null }))
             )
+          }
+
+          // Existing arms: save a changed department
+          if (showArmDepartmentPicker) {
+            for (const a of validArms) {
+              const existing = editingClass.arms?.find(e => e.name === a.name)
+              if (existing && (existing.department_id || '') !== (a.department_id || '')) {
+                const { error: armError } = await supabase
+                  .from('arms')
+                  .update({ department_id: a.department_id || null })
+                  .eq('id', existing.id)
+                if (armError) throw armError
+              }
+            }
           }
         }
       } else {
@@ -98,10 +116,10 @@ const ClassList = () => {
 
         // Create arms if needed
         if (form.has_arms) {
-          const validArms = arms.filter(a => a.trim())
+          const validArms = arms.filter(a => a.name.trim())
           if (validArms.length > 0) {
             await supabase.from('arms').insert(
-              validArms.map(name => ({ class_id: newClass.id, name }))
+              validArms.map(a => ({ class_id: newClass.id, name: a.name, department_id: a.department_id || null }))
             )
           }
         }
@@ -111,7 +129,7 @@ const ClassList = () => {
       setShowForm(false)
       setEditingClass(null)
       setForm({ name: '', section: '', has_arms: false })
-      setArms([''])
+      setArms([{ name: '', department_id: '' }])
       await fetchClasses()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
@@ -124,7 +142,7 @@ const ClassList = () => {
   const handleEdit = (cls) => {
     setEditingClass(cls)
     setForm({ name: cls.name, section: cls.section, has_arms: cls.has_arms })
-    setArms(cls.arms?.map(a => a.name) || [''])
+    setArms(cls.arms?.map(a => ({ name: a.name, department_id: a.department_id || '' })) || [{ name: '', department_id: '' }])
     setShowForm(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -145,8 +163,10 @@ const ClassList = () => {
     await fetchClasses()
   }
 
-  const nurseryClasses = classes.filter(c => c.section === 'Nursery')
-  const primaryClasses = classes.filter(c => c.section === 'Primary')
+  const classGroups = sections.map(s => ({
+    label: `${s.name} Section`,
+    data: classes.filter(c => c.section === s.name),
+  }))
 
   if (loading) return (
     <AdminLayout>
@@ -168,7 +188,7 @@ const ClassList = () => {
             setShowForm(!showForm)
             setEditingClass(null)
             setForm({ name: '', section: '', has_arms: false })
-            setArms([''])
+            setArms([{ name: '', department_id: '' }])
           }}
           className="flex items-center gap-2 bg-primary hover:bg-primary-light text-white font-semibold px-5 py-2.5 rounded-lg transition"
         >
@@ -221,8 +241,8 @@ const ClassList = () => {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
               >
                 <option value="">Select Section</option>
-                {SECTIONS.map(s => (
-                  <option key={s} value={s}>{s}</option>
+                {sections.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
                 ))}
               </select>
             </div>
@@ -250,11 +270,23 @@ const ClassList = () => {
                   <div key={index} className="flex gap-2">
                     <input
                       type="text"
-                      value={arm}
-                      onChange={(e) => handleArmChange(index, e.target.value)}
+                      value={arm.name}
+                      onChange={(e) => handleArmChange(index, 'name', e.target.value)}
                       placeholder={`Arm ${index + 1} e.g. A`}
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
                     />
+                    {showArmDepartmentPicker && (
+                      <select
+                        value={arm.department_id}
+                        onChange={(e) => handleArmChange(index, 'department_id', e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                      >
+                        <option value="">No department</option>
+                        {departments.map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    )}
                     {arms.length > 1 && (
                       <button
                         type="button"
@@ -297,7 +329,7 @@ const ClassList = () => {
       )}
 
       {/* Classes List */}
-      {[{ label: 'Nursery Section', data: nurseryClasses }, { label: 'Primary Section', data: primaryClasses }].map(({ label, data }) => (
+      {classGroups.map(({ label, data }) => (
         <div key={label} className="mb-8">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
             {label}

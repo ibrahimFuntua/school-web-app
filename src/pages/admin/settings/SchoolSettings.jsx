@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
+import { useSections } from '../../../hooks/useSections'
+import { getSectionReportSettings } from '../../../lib/reportSettings'
 import { useAuthStore } from '../../../store/authStore'
 import { Plus, Trash2, GripVertical } from 'lucide-react'
 
@@ -266,6 +268,10 @@ const QualityTraitsManager = ({ schoolId }) => {
 // ============================================================
 const SchoolSettings = () => {
   const { schoolId, user } = useAuthStore()
+  const { sections } = useSections()
+  const [departmentSectionId, setDepartmentSectionId] = useState('')
+  const [departmentMode, setDepartmentMode] = useState('')
+  const [savingDeptConfig, setSavingDeptConfig] = useState(false)
   const logoInputRef = useRef()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -310,6 +316,7 @@ const [resetSuccess, setResetSuccess] = useState(false)
     show_affective: true,
     primary_show_subject_position: true,
     nursery_show_subject_position: false,
+    section_settings: {},
   })
 
   useEffect(() => {
@@ -327,6 +334,8 @@ const [resetSuccess, setResetSuccess] = useState(false)
         if (data.grade_scale) setGradeScale(data.grade_scale)
         if (data.report_settings) setReportSettings(prev => ({ ...prev, ...data.report_settings }))
         if (data.logo_url) setLogoPreview(data.logo_url)
+        if (data.department_section_id) setDepartmentSectionId(data.department_section_id)
+        if (data.department_mode) setDepartmentMode(data.department_mode)
       }
       setLoading(false)
     }
@@ -461,6 +470,16 @@ const [resetSuccess, setResetSuccess] = useState(false)
     }
   }
 
+  const updateSectionSetting = (sectionName, field, value) => {
+    setReportSettings(prev => ({
+      ...prev,
+      section_settings: {
+        ...(prev.section_settings || {}),
+        [sectionName]: { ...getSectionReportSettings(prev, sectionName), [field]: value },
+      },
+    }))
+  }
+
   const handleSaveReportSettings = async () => {
     setSaving(true)
     try {
@@ -509,149 +528,119 @@ const [resetSuccess, setResetSuccess] = useState(false)
 
 const handleFactoryReset = async () => {
   if (!resetCheck1 || !resetCheck2) {
-  setError('Please check both confirmation boxes.')
-  return
-}
+    setError('Please check both confirmation boxes.')
+    return
+  }
 
   setResetting(true)
   setError('')
 
+  // Splits long ID lists into smaller groups so requests don't get too long
+  const chunk = (arr, size = 100) => {
+    const groups = []
+    for (let i = 0; i < arr.length; i += size) groups.push(arr.slice(i, i + size))
+    return groups
+  }
+
+  // Stops the whole reset if a step fails, instead of reporting success
+  const check = ({ error }, label) => {
+    if (error) throw new Error(`${label}: ${error.message}`)
+  }
+
+  // Gets every matching row, not just the first 1000
+  const fetchAll = async (table, columns, column, value) => {
+    let rows = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(table).select(columns).eq(column, value).range(from, from + 999)
+      if (error) throw new Error(`${table}: ${error.message}`)
+      rows = rows.concat(data)
+      if (data.length < 1000) break
+      from += 1000
+    }
+    return rows
+  }
+
   try {
     const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-    // Get admin role info to restore later
-    const { data: adminRole } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('auth_user_id', currentUser.id)
-      .single()
+    // ---- Gather this school's IDs first ----
+    const sessionIds = (await fetchAll('sessions', 'id', 'school_id', schoolId)).map(r => r.id)
+    const classIds = (await fetchAll('classes', 'id', 'school_id', schoolId)).map(r => r.id)
+    const staffRows = await fetchAll('staff', 'id, auth_user_id', 'school_id', schoolId)
+    const staffIds = staffRows.map(r => r.id)
+    const studentIds = (await fetchAll('students', 'id', 'school_id', schoolId)).map(r => r.id)
 
-    // ---- Gather this school's IDs up front ----
-    // terms, parent_students, teacher_classes and arms don't have their own
-    // school_id column — they're only reachable via sessions/students/staff/
-    // classes. Without scoping through these IDs, deleting from those tables
-    // affects every school on the platform, not just this one.
-    const { data: schoolSessions } = await supabase.from('sessions').select('id').eq('school_id', schoolId)
-    const sessionIds = schoolSessions?.map(s => s.id) || []
+    // Parents linked to this school's students (parents have no school column)
+    let candidateParentIds = []
+    for (const ids of chunk(studentIds)) {
+      const { data, error } = await supabase
+        .from('parent_students').select('parent_id').in('student_id', ids)
+      check({ error }, 'parent links')
+      candidateParentIds.push(...(data || []).map(l => l.parent_id))
+    }
+    candidateParentIds = [...new Set(candidateParentIds)]
 
-    const { data: schoolClasses } = await supabase.from('classes').select('id').eq('school_id', schoolId)
-    const classIds = schoolClasses?.map(c => c.id) || []
-
-    const { data: schoolStaff } = await supabase.from('staff').select('id, auth_user_id').eq('school_id', schoolId)
-    const staffIds = schoolStaff?.map(s => s.id) || []
-
-    const { data: schoolStudents } = await supabase.from('students').select('id').eq('school_id', schoolId)
-    const studentIds = schoolStudents?.map(s => s.id) || []
-
-    const { data: schoolParents } = await supabase.from('parents').select('id, auth_user_id').eq('school_id', schoolId)
-
-    // Every login account tied to this school (except the admin doing the reset)
-    const authUserIdsToDelete = [
-      ...(schoolStaff?.map(s => s.auth_user_id).filter(Boolean) || []),
-      ...(schoolParents?.map(p => p.auth_user_id).filter(Boolean) || []),
-    ].filter(uid => uid !== currentUser.id)
-
-    // ---- DELETE IN CORRECT ORDER (children before parents) ----
-
-    // 1. Delete attendance
-    await supabase.from('attendance')
-      .delete().eq('school_id', schoolId)
-
-    // 2. Delete grades
-    await supabase.from('grades')
-      .delete().eq('school_id', schoolId)
-
-    // 3. Delete report cards
-    await supabase.from('report_cards')
-      .delete().eq('school_id', schoolId)
-
-    // 4. Delete payments
-    await supabase.from('payments')
-      .delete().eq('school_id', schoolId)
-
-    // 5. Delete fees
-    await supabase.from('fees')
-      .delete().eq('school_id', schoolId)
-
-    // 6. Delete social qualities
-    await supabase.from('social_qualities')
-      .delete().eq('school_id', schoolId)
-
-    // 7. Delete remark ranges
-    await supabase.from('remark_ranges')
-      .delete().eq('school_id', schoolId)
-
-    // 8. Delete school holidays
-    await supabase.from('school_holidays')
-      .delete().eq('school_id', schoolId)
-
-    // 9. Delete announcements
-    await supabase.from('announcements')
-      .delete().eq('school_id', schoolId)
-
-    // 10. Delete parent_students links (scoped to this school's students)
-    if (studentIds.length > 0) {
-      await supabase.from('parent_students').delete().in('student_id', studentIds)
+    // ---- Delete: children before parents ----
+    for (const ids of chunk(studentIds)) {
+      check(await supabase.from('attendance').delete().in('student_id', ids), 'attendance')
+      check(await supabase.from('grades').delete().in('student_id', ids), 'grades')
+      check(await supabase.from('report_cards').delete().in('student_id', ids), 'report cards')
+      check(await supabase.from('parent_students').delete().in('student_id', ids), 'parent links')
     }
 
-    // 11. Delete teacher_classes (scoped to this school's staff)
-    if (staffIds.length > 0) {
-      await supabase.from('teacher_classes').delete().in('staff_id', staffIds)
+    check(await supabase.from('payments').delete().eq('school_id', schoolId), 'payments')
+    check(await supabase.from('fees').delete().eq('school_id', schoolId), 'fees')
+    check(await supabase.from('social_qualities').delete().eq('school_id', schoolId), 'social qualities')
+    check(await supabase.from('remark_ranges').delete().eq('school_id', schoolId), 'remark ranges')
+    check(await supabase.from('school_holidays').delete().eq('school_id', schoolId), 'holidays')
+    check(await supabase.from('announcements').delete().eq('school_id', schoolId), 'announcements')
+
+    for (const ids of chunk(staffIds)) {
+      check(await supabase.from('teacher_classes').delete().in('staff_id', ids), 'teacher classes')
     }
 
-    // 12. Delete students
-    await supabase.from('students')
-      .delete().eq('school_id', schoolId)
+    check(await supabase.from('students').delete().eq('school_id', schoolId), 'students')
 
-    // 13. Delete parents (parents DOES have its own school_id — no subquery needed)
-    await supabase.from('parents')
-      .delete().eq('school_id', schoolId)
+    // Parents: remove only those left with no students anywhere.
+    // A parent who also has a child at another school is kept untouched.
+    const stillLinked = new Set()
+    for (const ids of chunk(candidateParentIds)) {
+      const { data, error } = await supabase
+        .from('parent_students').select('parent_id').in('parent_id', ids)
+      check({ error }, 'parent links')
+      ;(data || []).forEach(l => stillLinked.add(l.parent_id))
+    }
+    const orphanParentIds = candidateParentIds.filter(id => !stillLinked.has(id))
 
-    // 14. Delete staff
-    await supabase.from('staff')
-      .delete().eq('school_id', schoolId)
-
-    // 15. Delete arms (scoped to this school's classes)
-    if (classIds.length > 0) {
-      await supabase.from('arms').delete().in('class_id', classIds)
+    const orphanAuthIds = []
+    for (const ids of chunk(orphanParentIds)) {
+      const { data, error } = await supabase
+        .from('parents').select('auth_user_id').in('id', ids)
+      check({ error }, 'parents')
+      ;(data || []).forEach(p => { if (p.auth_user_id) orphanAuthIds.push(p.auth_user_id) })
+      check(await supabase.from('parents').delete().in('id', ids), 'parents')
     }
 
-    // 16. Delete classes
-    await supabase.from('classes')
-      .delete().eq('school_id', schoolId)
+    check(await supabase.from('staff').delete().eq('school_id', schoolId), 'staff')
 
-    // 17. Delete subjects
-    await supabase.from('subjects')
-      .delete().eq('school_id', schoolId)
-
-    // 18. Delete terms (scoped to this school's sessions)
-    if (sessionIds.length > 0) {
-      await supabase.from('terms').delete().in('session_id', sessionIds)
+    for (const ids of chunk(classIds)) {
+      check(await supabase.from('arms').delete().in('class_id', ids), 'arms')
     }
+    check(await supabase.from('classes').delete().eq('school_id', schoolId), 'classes')
+    check(await supabase.from('subjects').delete().eq('school_id', schoolId), 'subjects')
 
-    // 19. Delete sessions
-    await supabase.from('sessions')
-      .delete().eq('school_id', schoolId)
+    for (const ids of chunk(sessionIds)) {
+      check(await supabase.from('terms').delete().in('session_id', ids), 'terms')
+    }
+    check(await supabase.from('sessions').delete().eq('school_id', schoolId), 'sessions')
 
-    // 20. Delete class order
-    await supabase.from('class_order')
-      .delete().eq('school_id', schoolId)
+    check(await supabase.from('class_order').delete().eq('school_id', schoolId), 'class order')
+    check(await supabase.from('quality_traits').delete().eq('school_id', schoolId), 'quality traits')
 
-    // 21. Delete quality traits
-    await supabase.from('quality_traits')
-      .delete().eq('school_id', schoolId)
-
-    // 22. Delete counters
-    await supabase.from('counters')
-      .delete().eq('school_id', schoolId)
-
-    // 23. Remove all user_roles EXCEPT admin
-    await supabase.from('user_roles')
-      .delete()
-      .neq('auth_user_id', currentUser.id)
-
-    // 24. Reset school info to defaults
-    await supabase.from('schools')
+    // Reset school info to defaults
+    check(await supabase.from('schools')
       .update({
         name: 'My School',
         address: 'My School Address',
@@ -678,31 +667,40 @@ const handleFactoryReset = async () => {
           show_affective: true,
           primary_show_subject_position: true,
           nursery_show_subject_position: false,
+          section_settings: {},
         },
         updated_at: new Date(),
       })
-      .eq('id', schoolId)
+      .eq('id', schoolId), 'school info')
 
-    // 25. Restore admin role — PRESERVE admin account
-    await supabase.from('user_roles')
-      .upsert({
-        auth_user_id: currentUser.id,
-        role: 'Admin',
-        school_id: schoolId,
-      }, { onConflict: 'auth_user_id' })
+    // ---- Remove the actual login accounts, role rows and number counters ----
+    const authUserIdsToDelete = [
+      ...staffRows.map(s => s.auth_user_id),
+      ...orphanAuthIds,
+    ].filter(uid => uid && uid !== currentUser.id)
 
-    // 26. Delete the actual login accounts for this school's staff/parents —
-    // without this, their emails stay locked in auth.users forever
-    if (authUserIdsToDelete.length > 0) {
-      const { data: { session: authSession } } = await supabase.auth.getSession()
-      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-auth-users`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authSession.access_token}`,
-        },
-        body: JSON.stringify({ userIds: authUserIdsToDelete, schoolId }),
-      })
+    const { data: { session: authSession } } = await supabase.auth.getSession()
+    const batches = chunk(authUserIdsToDelete, 50)
+    if (batches.length === 0) batches.push([])
+
+    for (let i = 0; i < batches.length; i++) {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/factory-reset-cleanup`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authSession.access_token}`,
+          },
+          body: JSON.stringify({
+            userIds: batches[i],
+            schoolId,
+            clearCounters: i === batches.length - 1,
+          }),
+        }
+      )
+      const result = await response.json()
+      if (result.error) throw new Error(`Login cleanup: ${result.error}`)
     }
 
     setResetSuccess(true)
@@ -714,7 +712,6 @@ const handleFactoryReset = async () => {
     setResetting(false)
   }
 }
-
   const handleGradeChange = (index, field, value) => {
     const updated = [...gradeScale]
     updated[index] = { ...updated[index], [field]: value }
@@ -736,6 +733,7 @@ const handleFactoryReset = async () => {
     { key: 'reportcard', label: 'Report Card' },
     { key: 'traits', label: 'Qualities & Skills' },
     { key: 'classorder', label: 'Class Progression' },
+    { key: 'departments', label: 'Departments' },
     { key: 'password', label: 'Change Password' },
     { key: 'reset', label: '⚠️ Factory Reset' },
   ]
@@ -944,112 +942,46 @@ const handleFactoryReset = async () => {
           </p>
 
           <div className="space-y-6">
-            {/* Nursery Settings */}
-            <div>
-              <h3 className="text-sm font-semibold text-primary mb-3">
-                🟣 Nursery Section
-              </h3>
-              <div className="space-y-3">
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        {/* One settings block per section this school has created */}
+            {sections.length === 0 && (
+              <p className="text-sm text-gray-400">
+                No sections yet. Add your sections under Classes & Subjects, then Sections, and they will appear here.
+              </p>
+            )}
+            {sections.map(s => {
+              const sectionSettings = getSectionReportSettings(reportSettings, s.name)
+              const options = [
+                { field: 'use_position', title: 'Show Overall Position', hint: 'e.g. 1st out of 30' },
+                { field: 'show_subject_position', title: 'Show Position in Each Subject', hint: 'e.g. 1st in Mathematics' },
+                { field: 'use_grade', title: 'Show Grade', hint: 'Uses grading scale from Score Config' },
+              ]
+              return (
+                <div key={s.id} className="space-y-6">
                   <div>
-                    <p className="text-sm font-medium text-gray-700">Show Overall Position</p>
-                    <p className="text-xs text-gray-400">e.g. 1st out of 30</p>
+                    <h3 className="text-sm font-semibold text-primary mb-3">
+                      {s.name} Section
+                    </h3>
+                    <div className="space-y-3">
+                      {options.map(opt => (
+                        <label key={opt.field} className="flex items-center justify-between gap-3 cursor-pointer">
+                          <div>
+                            <p className="text-sm font-medium text-gray-700">{opt.title}</p>
+                            <p className="text-xs text-gray-400">{opt.hint}</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={!!sectionSettings[opt.field]}
+                            onChange={(e) => updateSectionSetting(s.name, opt.field, e.target.checked)}
+                            className="w-5 h-5 accent-primary"
+                          />
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.nursery_use_position}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, nursery_use_position: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Show Position in Each Subject</p>
-                    <p className="text-xs text-gray-400">e.g. 1st in Mathematics</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.nursery_show_subject_position}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, nursery_show_subject_position: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Show Grade</p>
-                    <p className="text-xs text-gray-400">Uses grading scale from Score Config</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.nursery_use_grade}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, nursery_use_grade: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-100" />
-
-            {/* Primary Settings */}
-            <div>
-              <h3 className="text-sm font-semibold text-primary mb-3">
-                🔵 Primary Section
-              </h3>
-              <div className="space-y-3">
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Show Overall Position</p>
-                    <p className="text-xs text-gray-400">e.g. 1st out of 30</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.primary_use_position}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, primary_use_position: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Show Position in Each Subject</p>
-                    <p className="text-xs text-gray-400">e.g. 1st in Mathematics</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.primary_show_subject_position}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, primary_show_subject_position: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Show Grade</p>
-                    <p className="text-xs text-gray-400">Uses grading scale from Score Config</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={reportSettings.primary_use_grade}
-                    onChange={(e) => setReportSettings(prev => ({
-                      ...prev, primary_use_grade: e.target.checked
-                    }))}
-                    className="w-5 h-5 accent-primary"
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-100" />
-
+                  <div className="border-t border-gray-100" />
+                </div>
+              )
+            })}
             {/* Global Settings */}
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-3">
@@ -1125,6 +1057,105 @@ const handleFactoryReset = async () => {
         </div>
       )}
       {/* ---- PASSWORD TAB ---- */}
+      {activeTab === 'departments' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1 pb-2 border-b border-gray-100">
+            Departments
+          </h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Departments (Science, Arts, Commercial, Technical) apply to one section only —
+            usually your senior section. Set that up here, then manage the actual
+            list of departments on the Departments page.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Which section uses departments?
+              </label>
+              <select
+                value={departmentSectionId}
+                onChange={(e) => setDepartmentSectionId(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+              >
+                <option value="">Not using departments</option>
+                {sections.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {departmentSectionId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  How are students grouped into departments?
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="department_mode"
+                      checked={departmentMode === 'by_arm'}
+                      onChange={() => setDepartmentMode('by_arm')}
+                      className="mt-1 accent-primary"
+                    />
+                    <span className="text-sm text-gray-700">
+                      <span className="font-medium">By Arm</span> — each department is its own class arm (e.g. "SS2 Science", "SS2 Arts")
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="department_mode"
+                      checked={departmentMode === 'by_student'}
+                      onChange={() => setDepartmentMode('by_student')}
+                      className="mt-1 accent-primary"
+                    />
+                    <span className="text-sm text-gray-700">
+                      <span className="font-medium">By Student</span> — students share one class/arm, department is tracked per student
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={async () => {
+                setSavingDeptConfig(true)
+                setError('')
+                try {
+                  const { error } = await supabase.from('schools').update({
+                    department_section_id: departmentSectionId || null,
+                    department_mode: departmentSectionId ? (departmentMode || null) : null,
+                    updated_at: new Date(),
+                  }).eq('id', schoolId)
+                  if (error) throw error
+                  setSuccess('Department settings saved!')
+                  setTimeout(() => setSuccess(''), 3000)
+                } catch (err) {
+                  setError(err.message || 'Failed to save department settings.')
+                } finally {
+                  setSavingDeptConfig(false)
+                }
+              }}
+              disabled={savingDeptConfig || (departmentSectionId && !departmentMode)}
+              className="bg-primary hover:bg-primary-light text-white font-semibold px-6 py-2.5 rounded-lg transition disabled:opacity-60"
+            >
+              {savingDeptConfig ? 'Saving...' : 'Save'}
+            </button>
+
+            {departmentSectionId && departmentMode && (
+              <a
+                href="/admin/departments"
+                className="block text-sm text-primary font-medium hover:underline pt-2"
+              >
+                → Manage {sections.find(s => s.id === departmentSectionId)?.name} departments
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'password' && (
   <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-md">
     <h2 className="text-sm font-semibold text-gray-700 mb-1 pb-2 border-b border-gray-100">

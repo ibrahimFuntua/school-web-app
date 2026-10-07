@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { X } from 'lucide-react'
+import { getSectionReportSettings } from '../../lib/reportSettings'
+import { attachDepartmentLinks, subjectFitsDepartment } from '../../lib/departmentUtils'
 
 const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
   const { schoolId } = useAuthStore()
@@ -21,7 +23,7 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
         reportCardRes, schoolRes, termRes,
       ] = await Promise.all([
         supabase.from('students')
-          .select('*, classes(id, name, section), arms(name), sessions(name)')
+          .select('*, classes(id, name, section), arms(name, department_id), sessions(name)')
           .eq('id', studentId).single(),
         supabase.from('grades')
           .select('*, subjects(name)')
@@ -44,11 +46,26 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       ])
 
       const student = studentRes.data
-      const grades = gradesRes.data || []
+      let grades = gradesRes.data || []
       const attendance = attendanceRes.data || []
       const reportCard = reportCardRes.data
       const term = termRes.data
       const schoolData = schoolRes.data
+
+      // Departments: hide subjects that are not part of this student's department
+      if (schoolData?.department_section_id && schoolData?.department_mode && grades.length > 0) {
+        const { data: deptSection } = await supabase
+          .from('school_sections').select('name').eq('id', schoolData.department_section_id).single()
+        if (deptSection?.name && deptSection.name === student.classes?.section) {
+          const studentDepartmentId = schoolData.department_mode === 'by_arm'
+            ? student.arms?.department_id
+            : student.department_id
+          const subjectsWithLinks = await attachDepartmentLinks(grades.map(g => ({ id: g.subject_id })))
+          grades = grades.filter(g =>
+            subjectFitsDepartment(subjectsWithLinks.find(s => s.id === g.subject_id), studentDepartmentId)
+          )
+        }
+      }
 
       // Fetch quality traits
       const { data: traits } = await supabase
@@ -130,17 +147,10 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       const reportSettings = schoolData?.report_settings || {}
       const section = student.classes?.section
 
-      const usePosition = section === 'Nursery'
-        ? reportSettings.nursery_use_position
-        : reportSettings.primary_use_position
-
-      const useGrade = section === 'Nursery'
-        ? reportSettings.nursery_use_grade
-        : reportSettings.primary_use_grade
-
-      const showSubjectPosition = section === 'Nursery'
-        ? reportSettings.nursery_show_subject_position
-        : reportSettings.primary_show_subject_position
+      const sectionSettings = getSectionReportSettings(reportSettings, section)
+      const usePosition = sectionSettings.use_position
+      const useGrade = sectionSettings.use_grade
+      const showSubjectPosition = sectionSettings.show_subject_position
 
       setData({
         student, grades, attendance: { totalPresent, totalDays, attendancePct },

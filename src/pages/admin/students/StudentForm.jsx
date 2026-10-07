@@ -3,14 +3,18 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useNavigate } from 'react-router-dom'
+import { useSections } from '../../../hooks/useSections'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
+
 import {
   GENDERS,
-  SECTIONS,
   GUARDIAN_RELATIONSHIPS,
 } from '../../../lib/constants'
 
 const StudentForm = () => {
   const { schoolId } = useAuthStore()
+  const { sections } = useSections()
+  const { departmentSectionName, departmentMode, departments } = useDepartmentConfig()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -47,6 +51,7 @@ const StudentForm = () => {
     section: '',
     class_id: '',
     arm_id: '',
+    department_id: '',
     session_id: '',
     admission_date: new Date().toISOString().split('T')[0],
     guardian_name: '',
@@ -125,6 +130,7 @@ const StudentForm = () => {
         admission_number: admissionNumber,
         student_id: studentId,
         arm_id: form.arm_id || null,
+        department_id: (form.section === departmentSectionName && departmentMode === 'by_student') ? (form.department_id || null) : null,
         status: 'Active',
       }
 
@@ -370,9 +376,18 @@ if (insertError) throw insertError
               <label className={labelClass}>Section <span className="text-red-500">*</span></label>
               <select name="section" value={form.section} onChange={handleChange} required className={inputClass}>
                 <option value="">Select Section</option>
-                {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                {sections.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
+            {form.section === departmentSectionName && departmentMode === 'by_student' && (
+              <div>
+                <label className={labelClass}>Department <span className="text-red-500">*</span></label>
+                <select name="department_id" value={form.department_id} onChange={handleChange} required className={inputClass}>
+                  <option value="">Select Department</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className={labelClass}>Class <span className="text-red-500">*</span></label>
               <select name="class_id" value={form.class_id} onChange={handleChange} required disabled={!form.section} className={inputClass}>

@@ -20,6 +20,8 @@ import StaffForm from '../pages/admin/staff/StaffForm'
 import StaffProfile from '../pages/admin/staff/StaffProfile'
 import ClassList from '../pages/admin/classes/ClassList'
 import SubjectList from '../pages/admin/subjects/SubjectList'
+import SectionList from '../pages/admin/sections/SectionList'
+import DepartmentList from '../pages/admin/departments/DepartmentList'
 import FeeStructure from '../pages/admin/fees/FeeStructure'
 import RecordPayment from '../pages/admin/fees/RecordPayment'
 import FeeReports from '../pages/admin/fees/FeeReports'
@@ -116,6 +118,16 @@ const AppRouter = () => {
         <Route path="/admin/staff/:id" element={
           <ProtectedRoute allowedRoles={['Admin', 'Headmaster']}>
             <StaffProfile />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/sections" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <SectionList />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/departments" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <DepartmentList />
           </ProtectedRoute>
         } />
         <Route path="/admin/classes" element={

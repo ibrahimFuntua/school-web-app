@@ -9,6 +9,7 @@ import {
   FileText, Users, CheckCircle
 } from 'lucide-react'
 import { cacheStudents, cacheClasses, cacheSubjects, cacheTeacherMeta } from '../../lib/offlineDB'
+import { attachDepartmentLinks } from '../../lib/departmentUtils'
 
 const TeacherDashboard = () => {
   const { user, schoolId } = useAuthStore()
@@ -38,7 +39,7 @@ const TeacherDashboard = () => {
         // Get assigned classes
         const { data: classData } = await supabase
   .from('teacher_classes')
-  .select('*, classes(id, name, section), arms(id, name)')
+  .select('*, classes(id, name, section), arms(id, name, department_id)')
   .eq('staff_id', staffData.id)
         setAssignedClasses(classData || [])
 
@@ -50,7 +51,7 @@ const TeacherDashboard = () => {
           const classIds = classData.map(c => c.classes.id)
           const { data: allStudents } = await supabase
             .from('students')
-            .select('id, first_name, middle_name, last_name, admission_number, class_id, arm_id')
+            .select('id, first_name, middle_name, last_name, admission_number, class_id, arm_id, department_id')
             .in('class_id', classIds)
             .eq('status', 'Active')
           if (allStudents) await cacheStudents(allStudents)
@@ -61,8 +62,8 @@ const TeacherDashboard = () => {
             .select('*')
             .eq('school_id', schoolId)
             .eq('is_active', true)
-            .in('section', sections)
-          if (subjectData) await cacheSubjects(subjectData)
+            .or(`section.is.null,section.in.(${sections.map(s => `"${s}"`).join(',')})`)
+          if (subjectData) await cacheSubjects(await attachDepartmentLinks(subjectData))
         }
 
         // Today's attendance summary

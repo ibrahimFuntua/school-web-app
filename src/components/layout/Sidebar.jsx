@@ -98,8 +98,10 @@ const Sidebar = ({ isOpen, onClose }) => {
     {
       label: 'Classes & Subjects', icon: BookOpen,
       children: [
+        { label: 'Sections', path: '/admin/sections' },
         { label: 'Classes', path: '/admin/classes' },
         { label: 'Subjects', path: '/admin/subjects' },
+        { label: 'Departments', path: '/admin/departments' },
       ],
     },
     {

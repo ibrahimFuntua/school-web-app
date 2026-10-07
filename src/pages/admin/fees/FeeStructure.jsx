@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
+import { useSections } from '../../../hooks/useSections'
 import { PlusCircle, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 
 const FeeStructure = () => {
   const { schoolId } = useAuthStore()
+  const { sections } = useSections()
   const [fees, setFees] = useState([])
   const [sessions, setSessions] = useState([])
   const [terms, setTerms] = useState([])
@@ -210,9 +212,7 @@ const FeeStructure = () => {
               <label className={labelClass}>Section</label>
               <select name="section" value={form.section} onChange={handleChange} className={inputClass}>
                 <option value="">All Sections</option>
-                <option value="Nursery">Nursery</option>
-                <option value="Primary">Primary</option>
-                <option value="Both">Both</option>
+                {sections.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
 
@@ -220,7 +220,7 @@ const FeeStructure = () => {
               <label className={labelClass}>Specific Class <span className="text-xs text-gray-400">(optional)</span></label>
               <select name="class_id" value={form.class_id} onChange={handleChange} className={inputClass}>
                 <option value="">All Classes</option>
-                {classes.filter(c => !form.section || c.section === form.section || form.section === 'Both').map(c => (
+                {classes.filter(c => !form.section || c.section === form.section).map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>

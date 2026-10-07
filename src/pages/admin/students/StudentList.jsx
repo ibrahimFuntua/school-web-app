@@ -4,9 +4,11 @@ import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { PlusCircle, Search, Eye, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useSections } from '../../../hooks/useSections'
 
 const StudentList = () => {
   const { schoolId } = useAuthStore()
+  const { sectionNames } = useSections()
   const navigate = useNavigate()
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -87,7 +89,7 @@ const StudentList = () => {
           />
         </div>
         <div className="flex gap-2 flex-wrap">
-          {['All', 'Nursery', 'Primary'].map(s => (
+          {['All', ...sectionNames].map(s => (
             <button
               key={s}
               onClick={() => setFilterSection(s)}
@@ -143,7 +145,7 @@ const StudentList = () => {
                   <td className="px-6 py-4 text-gray-500">{student.admission_number}</td>
                   <td className="px-6 py-4">
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      student.section === 'Nursery'
+                      student.section === sectionNames[0]
                         ? 'bg-purple-50 text-purple-600'
                         : 'bg-blue-50 text-primary'
                     }`}>

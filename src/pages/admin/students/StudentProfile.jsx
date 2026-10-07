@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
-import { GENDERS, SECTIONS, GUARDIAN_RELATIONSHIPS } from '../../../lib/constants'
+import { GENDERS, GUARDIAN_RELATIONSHIPS } from '../../../lib/constants'
+import { useSections } from '../../../hooks/useSections'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
 import { ArrowLeft, Save } from 'lucide-react'
 
 const StudentProfile = () => {
@@ -18,6 +20,10 @@ const StudentProfile = () => {
   const [schoolId, setSchoolId] = useState(null)
 
   const [form, setForm] = useState(null)
+
+    const { sections } = useSections()
+  const { departmentSectionName, departmentMode, departments } = useDepartmentConfig()
+  
 
   useEffect(() => {
     const fetchStudent = async () => {
@@ -103,6 +109,7 @@ const StudentProfile = () => {
           section: form.section,
           class_id: form.class_id,
           arm_id: form.arm_id || null,
+          department_id: form.department_id || null,
           session_id: form.session_id,
           admission_date: form.admission_date,
           status: form.status,
@@ -293,9 +300,18 @@ const StudentProfile = () => {
             <div>
               <label className={labelClass}>Section</label>
               <select name="section" value={form.section || ''} onChange={(e) => setForm({ ...form, section: e.target.value, class_id: '', arm_id: '' })} className={inputClass}>
-                {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                {sections.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
+            {form.section === departmentSectionName && departmentMode === 'by_student' && (
+              <div>
+                <label className={labelClass}>Department</label>
+                <select name="department_id" value={form.department_id || ''} onChange={(e) => setForm({ ...form, department_id: e.target.value })} className={inputClass}>
+                  <option value="">Select Department</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className={labelClass}>Class</label>
               <select name="class_id" value={form.class_id || ''} onChange={(e) => setForm({ ...form, class_id: e.target.value, arm_id: '' })} className={inputClass}>
