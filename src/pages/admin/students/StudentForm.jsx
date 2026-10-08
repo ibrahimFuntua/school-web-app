@@ -169,6 +169,7 @@ if (insertError) throw insertError
             const { data: newParent, error: parentInsertError } = await supabase
               .from('parents')
               .insert([{
+                school_id: schoolId,
                 full_name: form.guardian_name,
                 email: form.guardian_email,
                 phone: form.guardian_phone,
