@@ -37,11 +37,12 @@ const SessionManager = () => {
 
   const fetchSessions = async () => {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error: fetchError } = await supabase
       .from('sessions')
       .select('*, terms(*)')
       .eq('school_id', schoolId)
       .order('created_at', { ascending: false })
+    if (fetchError) setError(`Could not load sessions: ${fetchError.message}`)
     setSessions(data || [])
     setLoading(false)
   }
@@ -114,7 +115,7 @@ const SessionManager = () => {
       end_date: form.end_date || null,
       is_current: false,
     }])
-    if (error) setError('Failed to add term.')
+    if (error) setError(`Failed to add term: ${error.message}`)
     else {
       setTermForms({ ...termForms, [sessionId]: {} })
       await fetchSessions()
