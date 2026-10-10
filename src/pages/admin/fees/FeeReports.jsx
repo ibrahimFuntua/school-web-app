@@ -3,8 +3,9 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { Search, Printer, X } from 'lucide-react'
+import { fetchAllRows, outstandingForShown } from '../../../lib/feeUtils'
 
-const ReceiptModal = ({ payment, onClose }) => {
+const ReceiptModal = ({ payment, onClose, schoolName, schoolLogo }) => {
   if (!payment) return null
 
   const handlePrint = () => {
@@ -46,13 +47,26 @@ const ReceiptModal = ({ payment, onClose }) => {
           <div className="overflow-y-auto flex-1 px-6 py-5" id="receipt-print-area">
             <div className="space-y-4">
 
+              {payment.is_void && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-center text-sm font-bold rounded-lg py-2">
+                  VOIDED — this receipt no longer counts
+                  {payment.void_reason ? <span className="block text-xs font-normal">{payment.void_reason}</span> : null}
+                </div>
+              )}
+
               {/* School Header */}
               <div className="text-center border-b border-dashed border-gray-200 pb-4">
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center mx-auto mb-2">
-                  <span className="text-white font-bold text-sm">NCC</span>
-                </div>
+                {schoolLogo ? (
+                  <img src={schoolLogo} alt="" className="w-12 h-12 rounded-full object-cover mx-auto mb-2" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center mx-auto mb-2">
+                    <span className="text-white font-bold text-sm">
+                      {(schoolName || 'School').split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase()}
+                    </span>
+                  </div>
+                )}
                 <h3 className="font-bold text-primary text-base">
-                  NCC School Management
+                  {schoolName || 'School'}
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   Official Payment Receipt
@@ -187,7 +201,7 @@ const ReceiptModal = ({ payment, onClose }) => {
 }
 
 const FeeReports = () => {
-  const { schoolId } = useAuthStore()
+  const { schoolId, user, schoolName, schoolLogo } = useAuthStore()
   const [payments, setPayments] = useState([])
   const [sessions, setSessions] = useState([])
   const [terms, setTerms] = useState([])
@@ -197,24 +211,63 @@ const FeeReports = () => {
   const [filterTerm, setFilterTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('All')
   const [selectedPayment, setSelectedPayment] = useState(null)
+  const [message, setMessage] = useState(null)
 
   const fetchAll = async () => {
     setLoading(true)
-    const [paymentsRes, sessionsRes] = await Promise.all([
-      supabase
-        .from('payments')
-        .select('*, students(first_name, last_name, admission_number, classes(name)), fees(name), sessions(name), terms(name), staff(first_name, last_name)')
-        .eq('school_id', schoolId)
-        .order('payment_date', { ascending: false }),
-      supabase
-        .from('sessions')
-        .select('*, terms(*)')
-        .eq('school_id', schoolId)
-        .order('created_at', { ascending: false }),
-    ])
-    setPayments(paymentsRes.data || [])
-    setSessions(sessionsRes.data || [])
+    try {
+      // Read every payment, not just the first 1000
+      const allPayments = await fetchAllRows(() =>
+        supabase
+          .from('payments')
+          .select('*, students(first_name, last_name, admission_number, classes(name)), fees(name, amount, term_id), sessions(name), terms(name), staff!received_by(first_name, last_name)')
+          .eq('school_id', schoolId)
+          .order('payment_date', { ascending: false })
+          .order('id')
+      )
+      setPayments(allPayments)
+    } catch (err) {
+      setPayments([])
+      setMessage({ type: 'error', text: `Could not load payments: ${err.message}` })
+    }
+    const { data: sessionsData } = await supabase
+      .from('sessions')
+      .select('*, terms(*)')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: false })
+    setSessions(sessionsData || [])
     setLoading(false)
+  }
+
+  // Void a payment made by mistake: it stays on record but stops counting anywhere
+  const handleVoid = async (payment) => {
+    const reason = window.prompt(
+      `Void receipt ${payment.receipt_number} (₦${Number(payment.amount_paid).toLocaleString()})?\n\n` +
+      'Type the reason. The payment stays on record but no longer counts.'
+    )
+    if (reason === null) return
+    if (!reason.trim()) {
+      setMessage({ type: 'error', text: 'A reason is required to void a payment.' })
+      return
+    }
+    const { data: staffRow } = await supabase
+      .from('staff').select('id').eq('auth_user_id', user.id).maybeSingle()
+    const { error: voidError } = await supabase
+      .from('payments')
+      .update({
+        is_void: true,
+        void_reason: reason.trim(),
+        voided_at: new Date().toISOString(),
+        voided_by: staffRow?.id || null,
+      })
+      .eq('id', payment.id)
+    if (voidError) {
+      setMessage({ type: 'error', text: `Could not void the payment: ${voidError.message}` })
+      return
+    }
+    setMessage({ type: 'success', text: `Receipt ${payment.receipt_number} voided.` })
+    await fetchAll()
+    setTimeout(() => setMessage(null), 4000)
   }
 
   useEffect(() => {
@@ -239,8 +292,10 @@ const FeeReports = () => {
     return matchSearch && matchSession && matchTerm && matchStatus
   })
 
-  const totalCollected = filtered.reduce((sum, p) => sum + Number(p.amount_paid), 0)
-  const totalBalance = filtered.reduce((sum, p) => sum + Number(p.balance), 0)
+  // Voided payments are kept on record but never counted
+  const totalCollected = filtered.filter(p => !p.is_void).reduce((sum, p) => sum + Number(p.amount_paid), 0)
+  // Still owed = fee price minus what was really paid, once per student, fee and term
+  const totalBalance = outstandingForShown(payments, filtered)
 
   if (loading) return (
     <AdminLayout>
@@ -255,6 +310,8 @@ const FeeReports = () => {
       {selectedPayment && (
         <ReceiptModal
           payment={selectedPayment}
+          schoolName={schoolName}
+          schoolLogo={schoolLogo}
           onClose={() => setSelectedPayment(null)}
         />
       )}
@@ -265,6 +322,16 @@ const FeeReports = () => {
           Click any payment row to view and print its receipt.
         </p>
       </div>
+
+      {message && (
+        <div className={`mb-5 text-sm rounded-lg px-4 py-3 border ${
+          message.type === 'error'
+            ? 'bg-red-50 border-red-200 text-red-600'
+            : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          {message.text}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -279,7 +346,7 @@ const FeeReports = () => {
           </p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <p className="text-xs text-gray-400 mb-1">Total Outstanding</p>
+          <p className="text-xs text-gray-400 mb-1">Still Owed (on these fees)</p>
           <p className="text-2xl font-bold text-amber-600">
             ₦{totalBalance.toLocaleString()}
           </p>
@@ -342,12 +409,13 @@ const FeeReports = () => {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Balance</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-gray-400">
+                  <td colSpan={8} className="text-center py-10 text-gray-400">
                     No payment records found.
                   </td>
                 </tr>
@@ -356,7 +424,7 @@ const FeeReports = () => {
                 <tr
                   key={payment.id}
                   onClick={() => setSelectedPayment(payment)}
-                  className="hover:bg-blue-50 transition cursor-pointer"
+                  className={`hover:bg-blue-50 transition cursor-pointer ${payment.is_void ? 'opacity-50 line-through' : ''}`}
                 >
                   <td className="px-6 py-4 text-xs font-mono text-gray-500">
                     {payment.receipt_number}
@@ -385,8 +453,18 @@ const FeeReports = () => {
                         ? 'bg-green-50 text-green-700'
                         : 'bg-amber-50 text-amber-600'
                     }`}>
-                      {payment.payment_status}
+                      {payment.is_void ? 'Voided' : payment.payment_status}
                     </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {!payment.is_void && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleVoid(payment) }}
+                        className="text-xs text-red-500 hover:text-red-700 underline"
+                      >
+                        Void
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

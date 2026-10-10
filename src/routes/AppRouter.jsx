@@ -25,6 +25,7 @@ import DepartmentList from '../pages/admin/departments/DepartmentList'
 import FeeStructure from '../pages/admin/fees/FeeStructure'
 import RecordPayment from '../pages/admin/fees/RecordPayment'
 import FeeReports from '../pages/admin/fees/FeeReports'
+import OutstandingFees from '../pages/admin/fees/OutstandingFees'
 import SessionManager from '../pages/admin/sessions/SessionManager'
 import SchoolSettings from '../pages/admin/settings/SchoolSettings'
 import TeacherSettings from '../pages/teacher/Settings'
@@ -153,6 +154,11 @@ const AppRouter = () => {
         <Route path="/admin/fees/reports" element={
           <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
             <FeeReports />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/fees/outstanding" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <OutstandingFees />
           </ProtectedRoute>
         } />
         <Route path="/admin/sessions" element={

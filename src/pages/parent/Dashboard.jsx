@@ -3,6 +3,7 @@ import ParentLayout from '../../components/layout/ParentLayout'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useTermStore } from '../../store/termStore'
+import { loadChildOutstanding } from '../../lib/feeUtils'
 import { useNavigate } from 'react-router-dom'
 import {
   ClipboardList, BookOpen, Wallet,
@@ -68,7 +69,8 @@ const ParentDashboard = () => {
         .eq('term_id', currentTerm.id),
       supabase.from('payments')
         .select('amount_paid, balance, payment_status')
-        .eq('student_id', selectedChild.id),
+        .eq('student_id', selectedChild.id)
+        .eq('is_void', false),
       supabase.from('report_cards')
         .select('is_published')
         .eq('student_id', selectedChild.id)
@@ -93,7 +95,13 @@ const ParentDashboard = () => {
       : 0
 
     const totalPaid = payments.reduce((s, p) => s + Number(p.amount_paid || 0), 0)
-    const totalBalance = payments.reduce((s, p) => s + Number(p.balance || 0), 0)
+    // What is really still owed (fee price minus payments), including fees not yet paid at all
+    let totalBalance = 0
+    try {
+      totalBalance = (await loadChildOutstanding(selectedChild)).owed
+    } catch (err) {
+      console.error('Could not work out outstanding fees', err)
+    }
     const hasOutstanding = totalBalance > 0
 
     setChildStats({

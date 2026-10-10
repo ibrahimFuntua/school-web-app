@@ -39,9 +39,27 @@ const SectionList = () => {
         order_number: form.order_number === '' ? sections.length + 1 : Number(form.order_number),
         school_id: schoolId,
       }
+      const nameTaken = sections.some(s =>
+        s.id !== editingSection?.id && s.name.toLowerCase() === payload.name.toLowerCase()
+      )
+      if (nameTaken) throw new Error('A section with that name already exists.')
+
       if (editingSection) {
+        const oldName = editingSection.name
         const { error } = await supabase.from('school_sections').update(payload).eq('id', editingSection.id)
         if (error) throw error
+
+        // Other records store the section by name, so carry the new name across to them
+        if (oldName !== payload.name) {
+          for (const table of ['classes', 'students', 'subjects', 'fees']) {
+            const { error: renameError } = await supabase
+              .from(table)
+              .update({ section: payload.name })
+              .eq('school_id', schoolId)
+              .eq('section', oldName)
+            if (renameError) throw renameError
+          }
+        }
         setSuccess('Section updated!')
       } else {
         const { error } = await supabase.from('school_sections').insert([payload])
@@ -67,7 +85,22 @@ const SectionList = () => {
   }
 
   const handleDelete = async (section) => {
-    if (!window.confirm(`Delete "${section.name}"? Classes and subjects already using this section name won't be deleted, but it will disappear from the dropdowns.`)) return
+    // Refuse to delete a section that classes, students, subjects or fees still use
+    const used = []
+    for (const [table, label] of [['classes', 'class(es)'], ['students', 'student(s)'], ['subjects', 'subject(s)'], ['fees', 'fee(s)']]) {
+      const { count } = await supabase
+        .from(table)
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', schoolId)
+        .eq('section', section.name)
+      if (count > 0) used.push(`${count} ${label}`)
+    }
+    if (used.length > 0) {
+      setError(`"${section.name}" is still used by ${used.join(', ')}. Move or remove those first.`)
+      return
+    }
+    if (!window.confirm(`Delete "${section.name}"?`)) return
+    setError('')
     await supabase.from('school_sections').delete().eq('id', section.id)
     fetchSections()
   }

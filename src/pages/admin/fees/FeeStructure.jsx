@@ -10,7 +10,7 @@ const FeeStructure = () => {
   const { sections } = useSections()
   const [fees, setFees] = useState([])
   const [sessions, setSessions] = useState([])
-  const [terms, setTerms] = useState([])
+
   const [classes, setClasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -46,15 +46,15 @@ const FeeStructure = () => {
     if (schoolId) fetchAll()
   }, [schoolId])
 
-  // Load terms when session changes
-  useEffect(() => {
-    const selected = sessions.find(s => s.id === form.session_id)
-    setTerms(selected?.terms || [])
-    setForm(f => ({ ...f, term_id: '' }))
-  }, [form.session_id])
+  // The terms that belong to the session picked in the form
+  const terms = sessions.find(s => s.id === form.session_id)?.terms || []
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    const { name, value } = e.target
+    const next = { ...form, [name]: value }
+    if (name === 'session_id') next.term_id = ''  // terms belong to a session
+    if (name === 'section') next.class_id = ''    // classes belong to a section
+    setForm(next)
   }
 
   const handleSave = async (e) => {
@@ -111,9 +111,6 @@ const FeeStructure = () => {
       term_id: fee.term_id || '',
       fee_type: fee.fee_type,
     })
-    // Load terms for this session
-    const selected = sessions.find(s => s.id === fee.session_id)
-    setTerms(selected?.terms || [])
     setShowForm(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -239,7 +236,7 @@ const FeeStructure = () => {
             <div>
               <label className={labelClass}>Term</label>
               <select name="term_id" value={form.term_id} onChange={handleChange} className={inputClass}>
-                <option value="">All Terms</option>
+                <option value="">Every term (charged each term)</option>
                 {terms.map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
@@ -299,7 +296,7 @@ const FeeStructure = () => {
                   <td className="px-6 py-4 text-gray-500">{fee.section || 'All'}</td>
                   <td className="px-6 py-4 text-gray-500">{fee.classes?.name || 'All'}</td>
                   <td className="px-6 py-4 text-gray-500">{fee.sessions?.name || '—'}</td>
-                  <td className="px-6 py-4 text-gray-500">{fee.terms?.name || 'All Terms'}</td>
+                  <td className="px-6 py-4 text-gray-500">{fee.terms?.name || 'Every term'}</td>
                   <td className="px-6 py-4">
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
                       fee.fee_type === 'Compulsory'

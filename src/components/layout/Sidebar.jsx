@@ -110,6 +110,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { label: 'Fee Structure', path: '/admin/fees' },
         { label: 'Record Payment', path: '/admin/fees/payment' },
         { label: 'Fee Reports', path: '/admin/fees/reports' },
+        { label: 'Outstanding Fees', path: '/admin/fees/outstanding' },
       ],
     },
     { label: 'Parents', icon: Users2, path: '/admin/parents' },
@@ -124,6 +125,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { label: 'Students', icon: Users, path: '/admin/students' },
     { label: 'Staff', icon: UserCog, path: '/admin/staff' },
     { label: 'Fee Reports', icon: Wallet, path: '/admin/fees/reports' },
+    { label: 'Outstanding Fees', icon: Wallet, path: '/admin/fees/outstanding' },
     { label: 'School Settings', icon: Settings, path: '/admin/settings' },
   ]
 

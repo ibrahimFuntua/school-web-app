@@ -3,6 +3,7 @@ import AdminLayout from '../../components/layout/AdminLayout'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useTermStore } from '../../store/termStore'
+import { loadOutstanding } from '../../lib/feeUtils'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -62,6 +63,7 @@ const AdminDashboard = () => {
         currentTerm?.id
   ? supabase.from('payments').select('amount_paid, balance')
       .eq('school_id', schoolId)
+      .eq('is_void', false)
       .eq('term_id', currentTerm.id)
   : Promise.resolve({ data: [] }),
 currentTerm?.id
@@ -75,9 +77,20 @@ currentTerm?.id
       const totalCollected = paymentsRes.data?.reduce(
         (sum, p) => sum + Number(p.amount_paid), 0
       ) || 0
-      const totalOutstanding = paymentsRes.data?.reduce(
-        (sum, p) => sum + Number(p.balance), 0
-      ) || 0
+      // Still owed this term = what every student should pay minus what was paid
+      let totalOutstanding = 0
+      if (currentTerm?.id && currentTerm?.session_id) {
+        try {
+          const { rows } = await loadOutstanding({
+            schoolId,
+            sessionId: currentTerm.session_id,
+            termId: currentTerm.id,
+          })
+          totalOutstanding = rows.reduce((sum, r) => sum + r.owed, 0)
+        } catch (err) {
+          console.error('Could not work out outstanding fees', err)
+        }
+      }
 
       setStats({
         totalStudents: studentsRes.count || 0,
@@ -122,6 +135,7 @@ currentTerm?.id
         .from('payments')
         .select('id, receipt_number, amount_paid, payment_date, students(first_name, last_name), fees(name)')
         .eq('school_id', schoolId)
+        .eq('is_void', false)
         .order('payment_date', { ascending: false })
         .limit(5)
       setRecentPayments(recentPaymentsData || [])

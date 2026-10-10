@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import ParentLayout from '../../components/layout/ParentLayout'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
+import { loadChildOutstanding } from '../../lib/feeUtils'
 
 const ParentFees = () => {
   const { user } = useAuthStore()
   const [children, setChildren] = useState([])
   const [selectedChild, setSelectedChild] = useState(null)
   const [payments, setPayments] = useState([])
+  const [bills, setBills] = useState({ items: [], owed: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -42,13 +44,19 @@ const ParentFees = () => {
       .from('payments')
       .select('*, fees(name), sessions(name), terms(name)')
       .eq('student_id', selectedChild.id)
+      .eq('is_void', false)
       .order('payment_date', { ascending: false })
 
     setPayments(data || [])
+    try {
+      setBills(await loadChildOutstanding(selectedChild))
+    } catch (err) {
+      setBills({ items: [], owed: 0 })
+    }
   }
 
   const totalPaid = payments.reduce((s, p) => s + Number(p.amount_paid || 0), 0)
-  const totalBalance = payments.reduce((s, p) => s + Number(p.balance || 0), 0)
+  const totalBalance = bills.owed
 
   if (loading) return (
     <ParentLayout>
