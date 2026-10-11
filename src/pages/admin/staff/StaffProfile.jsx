@@ -4,6 +4,7 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { GENDERS, EMPLOYMENT_STATUSES } from '../../../lib/constants'
 import { ArrowLeft, Save } from 'lucide-react'
+import { callEdgeFunction, rolesForType } from '../../../lib/staffApi'
 
 const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
 
@@ -70,6 +71,10 @@ const StaffProfile = () => {
 
   const handleCreateLogin = async () => {
     if (!newTempPassword) return
+    if (newTempPassword.length < 6) {
+      setError('The password must be at least 6 characters.')
+      return
+    }
     setCreatingLogin(true)
     try {
       const staffRole = form.role === 'Head Teacher'
@@ -154,7 +159,11 @@ if (result.error) throw new Error(result.error)
   }
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    const { name, value } = e.target
+    const next = { ...form, [name]: value }
+    // A role has to fit the staff type, so clear it when the type changes
+    if (name === 'staff_type' && !rolesForType(value).includes(next.role)) next.role = ''
+    setForm(next)
   }
 
   const handleClassToggle = (classId, armId = null) => {
@@ -175,7 +184,7 @@ if (result.error) throw new Error(result.error)
           first_name: form.first_name,
           middle_name: form.middle_name,
           last_name: form.last_name,
-          date_of_birth: form.date_of_birth,
+          date_of_birth: form.date_of_birth || null,
           gender: form.gender,
           state_of_origin: form.state_of_origin,
           lga_of_origin: form.lga_of_origin,
@@ -185,7 +194,7 @@ if (result.error) throw new Error(result.error)
           email: form.email,
           staff_type: form.staff_type,
           role: form.role,
-          date_of_employment: form.date_of_employment,
+          date_of_employment: form.date_of_employment || null,
           employment_status: form.employment_status,
           qualification: form.qualification,
           updated_at: new Date(),
@@ -194,30 +203,61 @@ if (result.error) throw new Error(result.error)
 
       if (updateError) throw updateError
 
-      // Update class assignments if teaching staff
+      // Update class assignments if teaching staff.
+      // New classes are added first and removed ones deleted after, so a failure never wipes the list.
       if (form.staff_type === 'Teaching') {
-  const { error: deleteError } = await supabase.from('teacher_classes').delete().eq('staff_id', id)
-  if (deleteError) throw deleteError
-  if (selectedClasses.length > 0) {
-    const assignments = selectedClasses.map(key => {
-      const parts = key.split('_')
-      return {
-        staff_id: id,
-        class_id: parts[0],
-        arm_id: parts[1] || null,
-      }
-    })
-    const { error: insertError } = await supabase.from('teacher_classes').insert(assignments)
-    if (insertError) {
-      throw new Error('Class list was cleared but could not be updated — please re-select and save again.')
-    }
-  }
-}
+        const { data: current, error: currentError } = await supabase
+          .from('teacher_classes')
+          .select('id, class_id, arm_id')
+          .eq('staff_id', id)
+        if (currentError) throw currentError
 
+        const keyOf = (a) => (a.arm_id ? `${a.class_id}_${a.arm_id}` : a.class_id)
+        const currentKeys = new Set((current || []).map(keyOf))
+        const toRemove = (current || []).filter(a => !selectedClasses.includes(keyOf(a)))
+        const toAdd = selectedClasses
+          .filter(key => !currentKeys.has(key))
+          .map(key => {
+            const parts = key.split('_')
+            return { staff_id: id, class_id: parts[0], arm_id: parts[1] || null }
+          })
+
+        if (toAdd.length > 0) {
+          const { error: insertError } = await supabase.from('teacher_classes').insert(toAdd)
+          if (insertError) throw insertError
+        }
+        if (toRemove.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('teacher_classes')
+            .delete()
+            .in('id', toRemove.map(a => a.id))
+          if (deleteError) throw deleteError
+        }
+      }
+
+      // Keep the login in step with this profile: status, role and email
+      if (hasLogin) {
+        const loginRole = form.role === 'Head Teacher'
+          ? 'Headmaster'
+          : form.staff_type === 'Teaching'
+          ? 'Teacher'
+          : undefined
+        try {
+          await callEdgeFunction('update-staff-login', {
+            staffId: id,
+            status: form.employment_status,
+            role: loginRole,
+            email: form.email,
+          })
+        } catch (loginErr) {
+          setError(`Profile saved, but the login could not be updated: ${loginErr.message}`)
+          return
+        }
+      }
       setSuccess('Staff information updated successfully!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
-      setError('Failed to update staff information.')
+      setError(err.message || 'Failed to update staff information.')
     } finally {
       setSaving(false)
     }
@@ -354,7 +394,7 @@ if (result.error) throw new Error(result.error)
             <div>
               <label className={labelClass}>Role</label>
               <select name="role" value={form.role || ''} onChange={handleChange} className={inputClass}>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                {rolesForType(form.staff_type, form.role).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>

@@ -4,6 +4,7 @@ import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { PlusCircle, Search, Eye, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { callEdgeFunction } from '../../../lib/staffApi'
 
 const StaffList = () => {
   const { schoolId } = useAuthStore()
@@ -31,10 +32,19 @@ const StaffList = () => {
 
   const handleToggleStatus = async (member) => {
     const newStatus = member.employment_status === 'Active' ? 'Suspended' : 'Active'
-    await supabase
-      .from('staff')
-      .update({ employment_status: newStatus })
-      .eq('id', member.id)
+    const name = `${member.first_name} ${member.last_name}`
+    const question = newStatus === 'Suspended'
+      ? `Suspend ${name}? They will not be able to log in until you reactivate them.`
+      : `Reactivate ${name}? They will be able to log in again.`
+    if (!window.confirm(question)) return
+
+    try {
+      // The server changes the status AND blocks or restores the login
+      await callEdgeFunction('update-staff-login', { staffId: member.id, status: newStatus })
+    } catch (err) {
+      window.alert(`Could not change the status: ${err.message}`)
+      return
+    }
     await fetchStaff()
   }
 

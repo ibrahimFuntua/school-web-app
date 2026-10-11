@@ -3,6 +3,7 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useNavigate } from 'react-router-dom'
+import { callEdgeFunction, rolesForType } from '../../../lib/staffApi'
 import {
   GENDERS,
   EMPLOYMENT_STATUSES,
@@ -54,7 +55,11 @@ const StaffForm = () => {
   }, [schoolId])
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    const { name, value } = e.target
+    const next = { ...form, [name]: value }
+    // A role has to fit the staff type, so clear it when the type changes
+    if (name === 'staff_type' && !rolesForType(value).includes(next.role)) next.role = ''
+    setForm(next)
   }
 
   const handleClassToggle = (classId, armId = null) => {
@@ -74,10 +79,27 @@ const StaffForm = () => {
     if (error) throw error
     return data
   }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+
+    // Check everything we can BEFORE saving anything
+    const loginRole = form.role === 'Head Teacher'
+      ? 'Headmaster'
+      : form.staff_type === 'Teaching'
+      ? 'Teacher'
+      : null
+    if (createLogin) {
+      if (!loginRole) {
+        setError('Only Teaching staff and Head Teachers can have a login. Untick "create a login" or change the role.')
+        return
+      }
+      if (tempPassword.length < 6) {
+        setError('The temporary password must be at least 6 characters.')
+        return
+      }
+    }
+
     setSaving(true)
 
     try {
@@ -85,70 +107,60 @@ const StaffForm = () => {
 
       const { data: newStaff, error: staffError } = await supabase
         .from('staff')
-        .insert([{ ...form, school_id: schoolId, staff_id: staffId }])
+        .insert([{
+          ...form,
+          email: form.email.trim().toLowerCase(),
+          date_of_birth: form.date_of_birth || null,
+          date_of_employment: form.date_of_employment || null,
+          school_id: schoolId,
+          staff_id: staffId,
+        }])
         .select()
         .single()
 
-      if (staffError) throw staffError
+      if (staffError) {
+        if (staffError.code === '23505') throw new Error('A staff member with this email already exists.')
+        throw staffError
+      }
 
-      // Assign classes to teacher
+      // Anything that goes wrong from here on is listed, and the new profile opens so it can be fixed
+      const problems = []
+
       if (form.staff_type === 'Teaching' && selectedClasses.length > 0) {
-  const assignments = selectedClasses.map(key => {
-    const parts = key.split('_')
-    return {
-      staff_id: newStaff.id,
-      class_id: parts[0],
-      arm_id: parts[1] || null,
-    }
-  })
-  await supabase.from('teacher_classes').insert(assignments)
-}
-      // Create login if requested
-if (createLogin && tempPassword) {
-  const staffRole = form.role === 'Head Teacher'
-    ? 'Headmaster'
-    : form.staff_type === 'Teaching'
-    ? 'Teacher'
-    : null
+        const assignments = selectedClasses.map(key => {
+          const parts = key.split('_')
+          return { staff_id: newStaff.id, class_id: parts[0], arm_id: parts[1] || null }
+        })
+        const { error: classError } = await supabase.from('teacher_classes').insert(assignments)
+        if (classError) problems.push('the classes could not be saved')
+      }
 
-  
-  if (!staffRole) {
-    alert('Staff registered, but no login was created — logins are only available for Teaching staff and Head Teachers.')
-  } else {
-    const { data: { session: authSession } } = await supabase.auth.getSession()
-    const response = await fetch(
-  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff-user`,
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authSession.access_token}`,
-    },
-    body: JSON.stringify({
-      email: form.email,
-      password: tempPassword,
-      staffId: newStaff.id,
-      role: staffRole,
-      schoolId: schoolId,
-    }),
-  }
-)
-const result = await response.json()
-if (result.error) {
-  console.error('Login creation error:', result.error)
-  alert(`Staff registered but login creation failed: ${result.error}`)
-}
-  }
-}
+      if (createLogin) {
+        try {
+          await callEdgeFunction('create-staff-user', {
+            email: newStaff.email,
+            password: tempPassword,
+            staffId: newStaff.id,
+            role: loginRole,
+            schoolId,
+          })
+        } catch (loginError) {
+          problems.push(`the login could not be created (${loginError.message})`)
+        }
+      }
 
-      navigate('/admin/staff')
+      if (problems.length > 0) {
+        window.alert(`${form.first_name} was registered (ID ${staffId}), but ${problems.join(' and ')}. Their profile will open so you can fix this.`)
+        navigate(`/admin/staff/${newStaff.id}`)
+      } else {
+        navigate('/admin/staff')
+      }
     } catch (err) {
       setError(err.message || 'Failed to register staff. Please try again.')
     } finally {
       setSaving(false)
     }
   }
-
   const inputClass = "w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
   const labelClass = "block text-sm font-medium text-gray-700 mb-1"
 
@@ -252,7 +264,7 @@ if (result.error) {
               <label className={labelClass}>Role / Designation <span className="text-red-500">*</span></label>
               <select name="role" value={form.role} onChange={handleChange} required className={inputClass}>
                 <option value="">Select Role</option>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                {rolesForType(form.staff_type).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>
