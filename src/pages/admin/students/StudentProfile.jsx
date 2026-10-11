@@ -21,7 +21,7 @@ const StudentProfile = () => {
 
   const [form, setForm] = useState(null)
 
-    const { sections } = useSections()
+  const { sections, sectionNames, restricted, loading: sectionsLoading } = useSections()
   const { departmentSectionName, departmentMode, departments } = useDepartmentConfig()
   
 
@@ -138,9 +138,19 @@ const StudentProfile = () => {
   const inputClass = "w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
   const labelClass = "block text-sm font-medium text-gray-700 mb-1"
 
-  if (loading) return (
+  if (loading || (restricted && sectionsLoading)) return (
     <AdminLayout>
       <p className="text-gray-400 animate-pulse">Loading student...</p>
+    </AdminLayout>
+  )
+
+  // A Head Teacher / Principal can only open students of the sections they manage
+  if (restricted && form && !sectionNames.includes(form.section)) return (
+    <AdminLayout>
+      <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-md">
+        <p className="font-semibold text-gray-800 mb-1">No access</p>
+        <p className="text-sm text-gray-500">This student belongs to a section you do not manage.</p>
+      </div>
     </AdminLayout>
   )
 

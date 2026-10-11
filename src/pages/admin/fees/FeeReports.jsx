@@ -4,6 +4,7 @@ import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { Search, Printer, X } from 'lucide-react'
 import { fetchAllRows, outstandingForShown } from '../../../lib/feeUtils'
+import { useSections } from '../../../hooks/useSections'
 
 const ReceiptModal = ({ payment, onClose, schoolName, schoolLogo }) => {
   if (!payment) return null
@@ -202,6 +203,7 @@ const ReceiptModal = ({ payment, onClose, schoolName, schoolLogo }) => {
 
 const FeeReports = () => {
   const { schoolId, user, schoolName, schoolLogo } = useAuthStore()
+  const { sectionNames, restricted } = useSections()
   const [payments, setPayments] = useState([])
   const [sessions, setSessions] = useState([])
   const [terms, setTerms] = useState([])
@@ -220,7 +222,7 @@ const FeeReports = () => {
       const allPayments = await fetchAllRows(() =>
         supabase
           .from('payments')
-          .select('*, students(first_name, last_name, admission_number, classes(name)), fees(name, amount, term_id), sessions(name), terms(name), staff!received_by(first_name, last_name)')
+          .select('*, students(first_name, last_name, admission_number, section, classes(name)), fees(name, amount, term_id), sessions(name), terms(name), staff!received_by(first_name, last_name)')
           .eq('school_id', schoolId)
           .order('payment_date', { ascending: false })
           .order('id')
@@ -280,7 +282,12 @@ const FeeReports = () => {
     setFilterTerm('')
   }, [filterSession])
 
-  const filtered = payments.filter(p => {
+  // A Head Teacher / Principal only sees payments of students in the sections they manage
+  const visiblePayments = restricted
+    ? payments.filter(p => sectionNames.includes(p.students?.section))
+    : payments
+
+  const filtered = visiblePayments.filter(p => {
     const name = `${p.students?.first_name} ${p.students?.last_name}`.toLowerCase()
     const matchSearch =
       name.includes(search.toLowerCase()) ||
@@ -295,7 +302,7 @@ const FeeReports = () => {
   // Voided payments are kept on record but never counted
   const totalCollected = filtered.filter(p => !p.is_void).reduce((sum, p) => sum + Number(p.amount_paid), 0)
   // Still owed = fee price minus what was really paid, once per student, fee and term
-  const totalBalance = outstandingForShown(payments, filtered)
+  const totalBalance = outstandingForShown(visiblePayments, filtered)
 
   if (loading) return (
     <AdminLayout>

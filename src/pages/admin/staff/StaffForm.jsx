@@ -3,7 +3,8 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useNavigate } from 'react-router-dom'
-import { callEdgeFunction, rolesForType } from '../../../lib/staffApi'
+import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
+import { useSections } from '../../../hooks/useSections'
 import {
   GENDERS,
   EMPLOYMENT_STATUSES,
@@ -13,6 +14,7 @@ const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant',
 
 const StaffForm = () => {
   const { schoolId } = useAuthStore()
+  const { sections, restricted } = useSections()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [createLogin, setCreateLogin] = useState(false)
@@ -36,6 +38,7 @@ const StaffForm = () => {
     email: '',
     staff_type: '',
     role: '',
+    section_id: '',
     date_of_employment: new Date().toISOString().split('T')[0],
     employment_status: 'Active',
     qualification: '',
@@ -84,11 +87,7 @@ const StaffForm = () => {
     setError('')
 
     // Check everything we can BEFORE saving anything
-    const loginRole = form.role === 'Head Teacher'
-      ? 'Headmaster'
-      : form.staff_type === 'Teaching'
-      ? 'Teacher'
-      : null
+    const loginRole = loginRoleFor(form.role, form.staff_type)
     if (createLogin) {
       if (!loginRole) {
         setError('Only Teaching staff and Head Teachers can have a login. Untick "create a login" or change the role.')
@@ -112,6 +111,7 @@ const StaffForm = () => {
           email: form.email.trim().toLowerCase(),
           date_of_birth: form.date_of_birth || null,
           date_of_employment: form.date_of_employment || null,
+          section_id: form.section_id || null,
           school_id: schoolId,
           staff_id: staffId,
         }])
@@ -265,6 +265,23 @@ const StaffForm = () => {
               <select name="role" value={form.role} onChange={handleChange} required className={inputClass}>
                 <option value="">Select Role</option>
                 {rolesForType(form.staff_type).map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>
+                Section {(restricted || form.staff_type === 'Teaching') && <span className="text-red-500">*</span>}
+              </label>
+              <select
+                name="section_id"
+                value={form.section_id}
+                onChange={handleChange}
+                required={restricted || form.staff_type === 'Teaching'}
+                className={inputClass}
+              >
+                <option value="">
+                  {restricted || form.staff_type === 'Teaching' ? 'Select Section' : 'Whole school (Admin only)'}
+                </option>
+                {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>

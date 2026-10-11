@@ -5,12 +5,12 @@ import { useAuthStore } from '../../../store/authStore'
 import { PlusCircle, Pencil, Trash2 } from 'lucide-react'
 
 const SectionList = () => {
-  const { schoolId } = useAuthStore()
+  const { schoolId, role } = useAuthStore()
   const [sections, setSections] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
-  const [form, setForm] = useState({ name: '', order_number: '' })
+  const [form, setForm] = useState({ name: '', order_number: '', managed_by: '' })
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
@@ -38,6 +38,8 @@ const SectionList = () => {
         name: form.name.trim(),
         order_number: form.order_number === '' ? sections.length + 1 : Number(form.order_number),
         school_id: schoolId,
+        // Only the Admin decides who manages a section
+        ...(role === 'Admin' ? { managed_by: form.managed_by || null } : {}),
       }
       const nameTaken = sections.some(s =>
         s.id !== editingSection?.id && s.name.toLowerCase() === payload.name.toLowerCase()
@@ -66,7 +68,7 @@ const SectionList = () => {
         if (error) throw error
         setSuccess('Section added!')
       }
-      setForm({ name: '', order_number: '' })
+      setForm({ name: '', order_number: '', managed_by: '' })
       setShowForm(false)
       setEditingSection(null)
       fetchSections()
@@ -80,7 +82,7 @@ const SectionList = () => {
 
   const handleEdit = (section) => {
     setEditingSection(section)
-    setForm({ name: section.name, order_number: section.order_number })
+    setForm({ name: section.name, order_number: section.order_number, managed_by: section.managed_by || '' })
     setShowForm(true)
   }
 
@@ -124,7 +126,7 @@ const SectionList = () => {
           onClick={() => {
             setShowForm(!showForm)
             setEditingSection(null)
-            setForm({ name: '', order_number: '' })
+            setForm({ name: '', order_number: '', managed_by: '' })
           }}
           className="flex items-center gap-2 bg-primary hover:bg-primary-light text-white font-semibold px-5 py-2.5 rounded-lg transition"
         >
@@ -175,6 +177,25 @@ const SectionList = () => {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
               />
             </div>
+            {role === 'Admin' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Managed by
+                </label>
+                <select
+                  value={form.managed_by}
+                  onChange={(e) => setForm({ ...form, managed_by: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                >
+                  <option value="">Admin only</option>
+                  <option value="Head Teacher">Head Teacher</option>
+                  <option value="Principal">Principal</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  The students, staff and fees of this section are managed by this person.
+                </p>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button
                 type="submit"
@@ -204,7 +225,12 @@ const SectionList = () => {
             key={section.id}
             className="bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-3 flex items-center justify-between"
           >
-            <span className="font-semibold text-gray-800 text-sm">{section.name}</span>
+            <div>
+              <span className="font-semibold text-gray-800 text-sm">{section.name}</span>
+              <p className="text-xs text-gray-400">
+                Managed by: {section.managed_by || 'Admin only'}
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleEdit(section)}

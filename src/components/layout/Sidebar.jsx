@@ -124,8 +124,15 @@ const Sidebar = ({ isOpen, onClose }) => {
     { label: 'Report Cards', icon: FileText, path: '/headmaster/report-cards' },
     { label: 'Students', icon: Users, path: '/admin/students' },
     { label: 'Staff', icon: UserCog, path: '/admin/staff' },
-    { label: 'Fee Reports', icon: Wallet, path: '/admin/fees/reports' },
-    { label: 'Outstanding Fees', icon: Wallet, path: '/admin/fees/outstanding' },
+    {
+      label: 'Fees', icon: Wallet,
+      children: [
+        { label: 'Fee Structure', path: '/admin/fees' },
+        { label: 'Record Payment', path: '/admin/fees/payment' },
+        { label: 'Fee Reports', path: '/admin/fees/reports' },
+        { label: 'Outstanding Fees', path: '/admin/fees/outstanding' },
+      ],
+    },
     { label: 'School Settings', icon: Settings, path: '/admin/settings' },
   ]
 

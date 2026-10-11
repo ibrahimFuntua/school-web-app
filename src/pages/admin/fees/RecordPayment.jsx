@@ -5,9 +5,11 @@ import { useAuthStore } from '../../../store/authStore'
 import { Search, PrinterIcon } from 'lucide-react'
 import { PAYMENT_METHODS } from '../../../lib/constants'
 import { feeAppliesToStudent } from '../../../lib/feeUtils'
+import { useSections } from '../../../hooks/useSections'
 
 const RecordPayment = () => {
     const { schoolId, user } = useAuthStore()
+    const { sectionNames, restricted } = useSections()
     const [fees, setFees] = useState([])
     const [sessions, setSessions] = useState([])
     const [staffId, setStaffId] = useState(null)
@@ -106,11 +108,14 @@ const RecordPayment = () => {
     const handleSearch = async () => {
         if (!searchQuery.trim()) return
         setSearching(true)
-        const { data } = await supabase
+        let query = supabase
             .from('students')
             .select('*, classes(name), arms(name)')
             .eq('school_id', schoolId)
             .eq('status', 'Active')
+        // A Head Teacher / Principal only records payments for students of the sections they manage
+        if (restricted) query = query.in('section', sectionNames.length > 0 ? sectionNames : ['__none__'])
+        const { data } = await query
             .or(`admission_number.ilike.%${searchQuery}%,student_id.ilike.%${searchQuery}%,first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`)
             .limit(5)
         setSearchResults(data || [])

@@ -4,7 +4,8 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { GENDERS, EMPLOYMENT_STATUSES } from '../../../lib/constants'
 import { ArrowLeft, Save } from 'lucide-react'
-import { callEdgeFunction, rolesForType } from '../../../lib/staffApi'
+import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
+import { useSections } from '../../../hooks/useSections'
 
 const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
 
@@ -16,6 +17,7 @@ const StaffProfile = () => {
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
   const [form, setForm] = useState(null)
+  const { sections, sectionIds, restricted, loading: sectionsLoading } = useSections()
   const [classes, setClasses] = useState([])
   const [selectedClasses, setSelectedClasses] = useState([])
   const [schoolId, setSchoolId] = useState(null)
@@ -77,11 +79,7 @@ const StaffProfile = () => {
     }
     setCreatingLogin(true)
     try {
-      const staffRole = form.role === 'Head Teacher'
-        ? 'Headmaster'
-        : form.staff_type === 'Teaching'
-        ? 'Teacher'
-        : null
+      const staffRole = loginRoleFor(form.role, form.staff_type)
 
       if (!staffRole) {
         setError('Only Teaching staff and Head Teachers can have logins.')
@@ -194,6 +192,7 @@ if (result.error) throw new Error(result.error)
           email: form.email,
           staff_type: form.staff_type,
           role: form.role,
+          section_id: form.section_id || null,
           date_of_employment: form.date_of_employment || null,
           employment_status: form.employment_status,
           qualification: form.qualification,
@@ -237,11 +236,7 @@ if (result.error) throw new Error(result.error)
 
       // Keep the login in step with this profile: status, role and email
       if (hasLogin) {
-        const loginRole = form.role === 'Head Teacher'
-          ? 'Headmaster'
-          : form.staff_type === 'Teaching'
-          ? 'Teacher'
-          : undefined
+        const loginRole = loginRoleFor(form.role, form.staff_type) || undefined
         try {
           await callEdgeFunction('update-staff-login', {
             staffId: id,
@@ -266,9 +261,19 @@ if (result.error) throw new Error(result.error)
   const inputClass = "w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
   const labelClass = "block text-sm font-medium text-gray-700 mb-1"
 
-  if (loading) return (
+  if (loading || (restricted && sectionsLoading)) return (
     <AdminLayout>
       <p className="text-gray-400 animate-pulse">Loading staff...</p>
+    </AdminLayout>
+  )
+
+  // A Head Teacher / Principal can only open staff of the sections they manage
+  if (restricted && form && !sectionIds.includes(form.section_id)) return (
+    <AdminLayout>
+      <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-md">
+        <p className="font-semibold text-gray-800 mb-1">No access</p>
+        <p className="text-sm text-gray-500">This staff member belongs to a section you do not manage.</p>
+      </div>
     </AdminLayout>
   )
 
@@ -395,6 +400,21 @@ if (result.error) throw new Error(result.error)
               <label className={labelClass}>Role</label>
               <select name="role" value={form.role || ''} onChange={handleChange} className={inputClass}>
                 {rolesForType(form.staff_type, form.role).map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Section</label>
+              <select
+                name="section_id"
+                value={form.section_id || ''}
+                onChange={handleChange}
+                required={restricted || form.staff_type === 'Teaching'}
+                className={inputClass}
+              >
+                <option value="">
+                  {restricted || form.staff_type === 'Teaching' ? 'Select Section' : 'Whole school (Admin only)'}
+                </option>
+                {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>

@@ -7,7 +7,7 @@ import { PlusCircle, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 
 const FeeStructure = () => {
   const { schoolId } = useAuthStore()
-  const { sections } = useSections()
+  const { sections, sectionNames, restricted } = useSections()
   const [fees, setFees] = useState([])
   const [sessions, setSessions] = useState([])
 
@@ -48,6 +48,9 @@ const FeeStructure = () => {
 
   // The terms that belong to the session picked in the form
   const terms = sessions.find(s => s.id === form.session_id)?.terms || []
+
+  // A Head Teacher / Principal only sees the fees of the sections they manage
+  const visibleFees = restricted ? fees.filter(f => sectionNames.includes(f.section)) : fees
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -206,9 +209,9 @@ const FeeStructure = () => {
             </div>
 
             <div>
-              <label className={labelClass}>Section</label>
-              <select name="section" value={form.section} onChange={handleChange} className={inputClass}>
-                <option value="">All Sections</option>
+              <label className={labelClass}>Section{restricted && <span className="text-red-500"> *</span>}</label>
+              <select name="section" value={form.section} onChange={handleChange} required={restricted} className={inputClass}>
+                {restricted ? <option value="">Select Section</option> : <option value="">All Sections</option>}
                 {sections.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
@@ -217,7 +220,7 @@ const FeeStructure = () => {
               <label className={labelClass}>Specific Class <span className="text-xs text-gray-400">(optional)</span></label>
               <select name="class_id" value={form.class_id} onChange={handleChange} className={inputClass}>
                 <option value="">All Classes</option>
-                {classes.filter(c => !form.section || c.section === form.section).map(c => (
+                {classes.filter(c => (!restricted || sectionNames.includes(c.section)) && (!form.section || c.section === form.section)).map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -280,14 +283,14 @@ const FeeStructure = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {fees.length === 0 && (
+              {visibleFees.length === 0 && (
                 <tr>
                   <td colSpan={8} className="text-center py-10 text-gray-400">
                     No fees defined yet.
                   </td>
                 </tr>
               )}
-              {fees.map((fee) => (
+              {visibleFees.map((fee) => (
                 <tr key={fee.id} className={`hover:bg-gray-50 transition ${!fee.is_active ? 'opacity-50' : ''}`}>
                   <td className="px-6 py-4 font-medium text-gray-800">{fee.name}</td>
                   <td className="px-6 py-4 text-gray-700 font-semibold">

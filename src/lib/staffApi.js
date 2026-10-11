@@ -18,9 +18,17 @@ export const callEdgeFunction = async (name, body) => {
   return result
 }
 
-// A role has to fit the staff type: a Teaching person cannot be a Cleaner.
-const TEACHING_ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Other']
-const NON_TEACHING_ROLES = ['Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
+// Which app login a staff role gets. Head Teacher and Principal both log in with the
+// Headmaster access; which sections each one manages is set on the Sections page.
+export const loginRoleFor = (role, staffType) => {
+  if (role === 'Head Teacher' || role === 'Principal') return 'Headmaster'
+  if (staffType === 'Teaching') return 'Teacher'
+  return null
+}
+
+// A role has to fit the staff type: a Teaching person cannot be a Cleaner.src/hooks/useSections.js
+const TEACHING_ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Principal', 'Other']
+const NON_TEACHING_ROLES = ['Head Teacher', 'Principal', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
 
 export const rolesForType = (type, keep) => {
   const list = type === 'Teaching' ? TEACHING_ROLES : type === 'Non-Teaching' ? NON_TEACHING_ROLES : []

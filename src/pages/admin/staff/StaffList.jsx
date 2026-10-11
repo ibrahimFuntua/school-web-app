@@ -5,9 +5,11 @@ import { useAuthStore } from '../../../store/authStore'
 import { PlusCircle, Search, Eye, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { callEdgeFunction } from '../../../lib/staffApi'
+import { useSections } from '../../../hooks/useSections'
 
 const StaffList = () => {
   const { schoolId } = useAuthStore()
+  const { sectionIds, restricted, loading: sectionsLoading } = useSections()
   const navigate = useNavigate()
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
@@ -16,19 +18,24 @@ const StaffList = () => {
 
   const fetchStaff = async () => {
     setLoading(true)
-    const { data } = await supabase
+    let query = supabase
       .from('staff')
       .select('*')
       .eq('school_id', schoolId)
       .order('first_name')
+    // A Head Teacher / Principal only sees staff of the sections they manage
+    if (restricted) {
+      query = query.in('section_id', sectionIds.length > 0 ? sectionIds : ['00000000-0000-0000-0000-000000000000'])
+    }
+    const { data } = await query
 
     setStaff(data || [])
     setLoading(false)
   }
 
   useEffect(() => {
-    if (schoolId) fetchStaff()
-  }, [schoolId])
+    if (schoolId && !sectionsLoading) fetchStaff()
+  }, [schoolId, sectionsLoading])
 
   const handleToggleStatus = async (member) => {
     const newStatus = member.employment_status === 'Active' ? 'Suspended' : 'Active'

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
+import { useSections } from '../../../hooks/useSections'
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
 const PromoteStudents = () => {
   const { schoolId } = useAuthStore()
+  const { sectionNames, restricted } = useSections()
   const [sessions, setSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [classGroups, setClassGroups] = useState([])
@@ -56,13 +58,16 @@ const PromoteStudents = () => {
     setOverrides({})
 
     // Get all active students for this session
-    const { data: students } = await supabase
+    let studentQuery = supabase
       .from('students')
       .select('*, classes(id, name, section), arms(name)')
       .eq('school_id', schoolId)
       .eq('session_id', selectedSession.id)
       .eq('status', 'Active')
       .order('first_name')
+    // A Head Teacher / Principal only promotes students of the sections they manage
+    if (restricted) studentQuery = studentQuery.in('section', sectionNames.length > 0 ? sectionNames : ['__none__'])
+    const { data: students } = await studentQuery
 
     // Group students by class
     const groups = {}

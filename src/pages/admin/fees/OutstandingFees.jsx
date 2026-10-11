@@ -4,9 +4,11 @@ import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { Search, Printer } from 'lucide-react'
 import { loadOutstanding } from '../../../lib/feeUtils'
+import { useSections } from '../../../hooks/useSections'
 
 const OutstandingFees = () => {
   const { schoolId, schoolName } = useAuthStore()
+  const { sectionNames, restricted } = useSections()
   const [sessions, setSessions] = useState([])
   const [sessionId, setSessionId] = useState('')
   const [termId, setTermId] = useState('') // '' = every term that has started
@@ -62,13 +64,18 @@ const OutstandingFees = () => {
     setTermId((picked?.terms || []).find(t => t.is_current)?.id || '')
   }
 
+  // A Head Teacher / Principal only sees students of the sections they manage
+  const visibleRows = restricted
+    ? rows.filter(r => sectionNames.includes(r.student.section))
+    : rows
+
   const classOptions = Array.from(
     new Map(
-      rows.filter(r => r.student.class_id).map(r => [r.student.class_id, r.student.classes?.name || 'Class'])
+      visibleRows.filter(r => r.student.class_id).map(r => [r.student.class_id, r.student.classes?.name || 'Class'])
     ).entries()
   )
 
-  const inClass = rows.filter(r => !classFilter || r.student.class_id === classFilter)
+  const inClass = visibleRows.filter(r => !classFilter || r.student.class_id === classFilter)
   const owing = inClass
     .filter(r => r.owed > 0)
     .filter(r => {

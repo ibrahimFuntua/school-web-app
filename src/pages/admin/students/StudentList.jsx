@@ -8,7 +8,7 @@ import { useSections } from '../../../hooks/useSections'
 
 const StudentList = () => {
   const { schoolId } = useAuthStore()
-  const { sectionNames } = useSections()
+  const { sectionNames, restricted, loading: sectionsLoading } = useSections()
   const navigate = useNavigate()
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -18,19 +18,22 @@ const StudentList = () => {
 
   const fetchStudents = async () => {
     setLoading(true)
-    const { data } = await supabase
+    let query = supabase
       .from('students')
       .select('*, classes(name), arms(name)')
       .eq('school_id', schoolId)
       .order('first_name')
+    // A Head Teacher / Principal only sees students of the sections they manage
+    if (restricted) query = query.in('section', sectionNames.length > 0 ? sectionNames : ['__none__'])
+    const { data } = await query
 
     setStudents(data || [])
     setLoading(false)
   }
 
   useEffect(() => {
-    if (schoolId) fetchStudents()
-  }, [schoolId])
+    if (schoolId && !sectionsLoading) fetchStudents()
+  }, [schoolId, sectionsLoading])
 
   const handleToggleStatus = async (student) => {
     const newStatus = student.status === 'Active' ? 'Withdrawn' : 'Active'
