@@ -3,8 +3,32 @@ import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { Megaphone } from 'lucide-react'
 
+// Which sections does this teacher / parent belong to?
+const findMySectionNames = async (role, userId) => {
+  const names = new Set()
+  if (!userId) return []
+  if (role === 'Parent') {
+    const { data: parent } = await supabase
+      .from('parents').select('id').eq('auth_user_id', userId).maybeSingle()
+    if (parent) {
+      const { data } = await supabase
+        .from('parent_students').select('students(section)').eq('parent_id', parent.id)
+      ;(data || []).forEach(r => { if (r.students?.section) names.add(r.students.section) })
+    }
+  } else {
+    const { data: staff } = await supabase
+      .from('staff').select('id').eq('auth_user_id', userId).maybeSingle()
+    if (staff) {
+      const { data } = await supabase
+        .from('teacher_classes').select('classes(section)').eq('staff_id', staff.id)
+      ;(data || []).forEach(r => { if (r.classes?.section) names.add(r.classes.section) })
+    }
+  }
+  return [...names]
+}
+
 const AnnouncementsFeed = () => {
-  const { schoolId } = useAuthStore()
+  const { schoolId, role, user } = useAuthStore()
   const [announcements, setAnnouncements] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -17,7 +41,14 @@ const AnnouncementsFeed = () => {
         .eq('school_id', schoolId)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
-      setAnnouncements(data || [])
+
+      // Notices for the whole school, plus the ones for sections this person belongs to
+      const mine = await findMySectionNames(role, user?.id)
+      const { data: sectionRows } = await supabase
+        .from('school_sections').select('id, name').eq('school_id', schoolId)
+      const myIds = (sectionRows || []).filter(s => mine.includes(s.name)).map(s => s.id)
+
+      setAnnouncements((data || []).filter(a => !a.section_id || myIds.includes(a.section_id)))
       setLoading(false)
     }
     fetchAnnouncements()

@@ -61,7 +61,7 @@ const StaffForm = () => {
     const { name, value } = e.target
     const next = { ...form, [name]: value }
     // A role has to fit the staff type, so clear it when the type changes
-    if (name === 'staff_type' && !rolesForType(value).includes(next.role)) next.role = ''
+    if (name === 'staff_type' && !rolesForType(value, undefined, !restricted).includes(next.role)) next.role = ''
     setForm(next)
   }
 
@@ -264,7 +264,7 @@ const StaffForm = () => {
               <label className={labelClass}>Role / Designation <span className="text-red-500">*</span></label>
               <select name="role" value={form.role} onChange={handleChange} required className={inputClass}>
                 <option value="">Select Role</option>
-                {rolesForType(form.staff_type).map(r => <option key={r} value={r}>{r}</option>)}
+                {rolesForType(form.staff_type, undefined, !restricted).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>

@@ -100,7 +100,10 @@ const TeacherLayout = ({ children }) => {
         </div>
 
         <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-          {navItems.map(item => (
+          {(role === 'Headmaster'
+            ? [...navItems, { label: 'Back to Management', icon: LayoutDashboard, path: '/headmaster/dashboard' }]
+            : navItems
+          ).map(item => (
             <NavLink
               key={item.path}
               to={item.path}

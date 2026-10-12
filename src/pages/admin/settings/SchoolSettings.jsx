@@ -267,7 +267,7 @@ const QualityTraitsManager = ({ schoolId }) => {
 // MAIN SCHOOL SETTINGS COMPONENT
 // ============================================================
 const SchoolSettings = () => {
-  const { schoolId, user } = useAuthStore()
+  const { schoolId, user, role } = useAuthStore()
   const { sections } = useSections()
   const [departmentSectionId, setDepartmentSectionId] = useState('')
   const [departmentMode, setDepartmentMode] = useState('')
@@ -277,7 +277,7 @@ const SchoolSettings = () => {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState('general')
+  const [activeTab, setActiveTab] = useState(role === 'Headmaster' ? 'reportcard' : 'general')
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [logoPreview, setLogoPreview] = useState(null)
 
@@ -736,7 +736,7 @@ const handleFactoryReset = async () => {
     { key: 'departments', label: 'Departments' },
     { key: 'password', label: 'Change Password' },
     { key: 'reset', label: '⚠️ Factory Reset' },
-  ]
+  ].filter(t => role !== 'Headmaster' || ['reportcard', 'password'].includes(t.key))
 
   return (
     <AdminLayout>

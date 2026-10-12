@@ -9,6 +9,7 @@ import HeadReportCards from '../pages/headmaster/ReportCards'
 // Auth
 import Login from '../pages/auth/Login'
 import ResetPassword from '../pages/auth/ResetPassword'
+import ChangePassword from '../pages/auth/ChangePassword'
 
 // Admin
 import AdminDashboard from '../pages/admin/Dashboard'
@@ -77,6 +78,7 @@ const AppRouter = () => {
         {/* Public */}
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/change-password" element={<ChangePassword />} />
 
         {/* Role redirect */}
         <Route path="/" element={
@@ -122,22 +124,22 @@ const AppRouter = () => {
           </ProtectedRoute>
         } />
         <Route path="/admin/sections" element={
-          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+          <ProtectedRoute allowedRoles={['Admin']}>
             <SectionList />
           </ProtectedRoute>
         } />
         <Route path="/admin/departments" element={
-          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+          <ProtectedRoute allowedRoles={['Admin']}>
             <DepartmentList />
           </ProtectedRoute>
         } />
         <Route path="/admin/classes" element={
-          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+          <ProtectedRoute allowedRoles={['Admin']}>
             <ClassList />
           </ProtectedRoute>
         } />
         <Route path="/admin/subjects" element={
-          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+          <ProtectedRoute allowedRoles={['Admin']}>
             <SubjectList />
           </ProtectedRoute>
         } />
@@ -162,7 +164,7 @@ const AppRouter = () => {
           </ProtectedRoute>
         } />
         <Route path="/admin/sessions" element={
-          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+          <ProtectedRoute allowedRoles={['Admin']}>
             <SessionManager />
           </ProtectedRoute>
         } />
@@ -193,32 +195,32 @@ const AppRouter = () => {
 
         {/* ---- TEACHER ROUTES ---- */}
         <Route path="/teacher/dashboard" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <TeacherDashboard />
           </ProtectedRoute>
         } />
         <Route path="/teacher/attendance" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <AttendancePage />
           </ProtectedRoute>
         } />
         <Route path="/teacher/attendance/summary" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <AttendanceSummaryPage />
           </ProtectedRoute>
         } />
         <Route path="/teacher/grades" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <GradesPage />
           </ProtectedRoute>
         } />
         <Route path="/teacher/report-cards" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <ReportCardsPage />
           </ProtectedRoute>
         } />
         <Route path="/teacher/settings" element={
-          <ProtectedRoute allowedRoles={['Teacher']}>
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <TeacherSettings />
           </ProtectedRoute>
         } />
@@ -256,7 +258,7 @@ const AppRouter = () => {
   </ProtectedRoute>
 } />
 <Route path="/teacher/announcements" element={
-  <ProtectedRoute allowedRoles={['Teacher']}>
+  <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
     <TeacherAnnouncementsPage />
   </ProtectedRoute>
 } />

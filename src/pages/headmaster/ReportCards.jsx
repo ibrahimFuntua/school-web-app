@@ -5,6 +5,7 @@ import { useTermStore } from '../../store/termStore'
 import { Save, Eye, CheckCircle } from 'lucide-react'
 import ReportCardView from '../../components/shared/ReportCardView'
 import AdminLayout from '../../components/layout/AdminLayout'
+import { useSections } from '../../hooks/useSections'
 
 const DEFAULT_HEAD_RANGES = [
   { min: 70, max: 100, remark: 'Excellent result. Promoted with Distinction.' },
@@ -32,20 +33,24 @@ const HeadReportCards = ({ layout: Layout }) => {
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const { sectionNames, restricted, loading: sectionsLoading } = useSections()
 
   useEffect(() => {
     const fetchClasses = async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('classes')
         .select('*, arms(*)')
         .eq('school_id', schoolId)
         .eq('is_active', true)
         .order('section').order('name')
+      // A Head Teacher / Principal only sees the classes of the sections they manage
+      if (restricted) query = query.in('section', sectionNames.length > 0 ? sectionNames : ['__none__'])
+      const { data } = await query
       setClasses(data || [])
       setAllClasses(data || [])
     }
-    if (schoolId) fetchClasses()
-  }, [schoolId])
+    if (schoolId && !sectionsLoading) fetchClasses()
+  }, [schoolId, sectionsLoading])
 
   useEffect(() => {
     if (selectedClass && currentTerm) {

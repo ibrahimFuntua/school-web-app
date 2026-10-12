@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
+import { useSections } from '../../../hooks/useSections'
 import { Search, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
 
 const ParentList = () => {
   const { schoolId } = useAuthStore()
+  const { sectionNames, restricted } = useSections()
   const [parents, setParents] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -25,7 +27,7 @@ const ParentList = () => {
       .select(`
         *,
         parent_students(
-          students(first_name, last_name, admission_number, classes(name))
+          students(first_name, last_name, admission_number, section, classes(name))
         )
       `)
       .eq('school_id', schoolId)
@@ -115,7 +117,12 @@ const ParentList = () => {
     }
   }
 
-  const filtered = parents.filter(p =>
+  // A Head Teacher / Principal only sees parents who have a child in a section they manage
+  const visibleParents = restricted
+    ? parents.filter(p => (p.parent_students || []).some(ps => sectionNames.includes(ps.students?.section)))
+    : parents
+
+  const filtered = visibleParents.filter(p =>
     p.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     p.email?.toLowerCase().includes(search.toLowerCase())
   )

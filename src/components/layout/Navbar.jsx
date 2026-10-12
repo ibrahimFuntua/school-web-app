@@ -3,7 +3,7 @@ import { useTermStore } from '../../store/termStore'
 import { Bell, Menu } from 'lucide-react'
 import { useEffect } from 'react'
 
-const Navbar = ({ onMenuClick }) => {
+const Navbar = ({ onMenuClick, identity }) => {
   const { user, role, schoolId } = useAuthStore()
   const { currentSession, currentTerm, fetchCurrentTerm } = useTermStore()
 
@@ -52,7 +52,9 @@ const Navbar = ({ onMenuClick }) => {
             <p className="text-sm font-semibold text-gray-700 leading-tight">
               {user?.email}
             </p>
-            <p className="text-xs text-gray-400">{role}</p>
+            <p className="text-xs text-gray-400">
+              {role === 'Headmaster' ? (identity?.position || 'Headmaster') : role}
+            </p>
           </div>
         </div>
       </div>

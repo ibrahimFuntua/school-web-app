@@ -30,8 +30,10 @@ export const loginRoleFor = (role, staffType) => {
 const TEACHING_ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Principal', 'Other']
 const NON_TEACHING_ROLES = ['Head Teacher', 'Principal', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
 
-export const rolesForType = (type, keep) => {
-  const list = type === 'Teaching' ? TEACHING_ROLES : type === 'Non-Teaching' ? NON_TEACHING_ROLES : []
+export const rolesForType = (type, keep, canPickLeaders = true) => {
+  let list = type === 'Teaching' ? TEACHING_ROLES : type === 'Non-Teaching' ? NON_TEACHING_ROLES : []
+  // Only an Admin may choose Head Teacher or Principal
+  if (!canPickLeaders) list = list.filter(r => r !== 'Head Teacher' && r !== 'Principal')
   // keep a role the person already has, even if it no longer fits, so it is not silently lost
   return keep && !list.includes(keep) ? [...list, keep] : list
 }

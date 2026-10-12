@@ -160,7 +160,7 @@ if (result.error) throw new Error(result.error)
     const { name, value } = e.target
     const next = { ...form, [name]: value }
     // A role has to fit the staff type, so clear it when the type changes
-    if (name === 'staff_type' && !rolesForType(value).includes(next.role)) next.role = ''
+    if (name === 'staff_type' && !rolesForType(value, undefined, !restricted).includes(next.role)) next.role = ''
     setForm(next)
   }
 
@@ -268,11 +268,11 @@ if (result.error) throw new Error(result.error)
   )
 
   // A Head Teacher / Principal can only open staff of the sections they manage
-  if (restricted && form && !sectionIds.includes(form.section_id)) return (
+  if (restricted && form && (!sectionIds.includes(form.section_id) || ['Head Teacher', 'Principal'].includes(form.role))) return (
     <AdminLayout>
       <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-md">
         <p className="font-semibold text-gray-800 mb-1">No access</p>
-        <p className="text-sm text-gray-500">This staff member belongs to a section you do not manage.</p>
+        <p className="text-sm text-gray-500">This staff member is outside your sections, or is a Head Teacher or Principal (only the Admin manages those).</p>
       </div>
     </AdminLayout>
   )
@@ -399,7 +399,7 @@ if (result.error) throw new Error(result.error)
             <div>
               <label className={labelClass}>Role</label>
               <select name="role" value={form.role || ''} onChange={handleChange} className={inputClass}>
-                {rolesForType(form.staff_type, form.role).map(r => <option key={r} value={r}>{r}</option>)}
+                {rolesForType(form.staff_type, form.role, !restricted).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>

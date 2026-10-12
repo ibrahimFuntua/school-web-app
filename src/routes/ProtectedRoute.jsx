@@ -14,6 +14,11 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (!user) return <Navigate to="/login" replace />
 
+  // Someone given a temporary password must choose their own before anything else
+  if (user.user_metadata?.must_change_password) {
+    return <Navigate to="/change-password" replace />
+  }
+
   if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to="/unauthorized" replace />
   }

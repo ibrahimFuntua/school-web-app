@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
+import { supabase } from '../../lib/supabase'
 
 import {
   LayoutDashboard,
@@ -15,9 +16,10 @@ import {
   ChevronUp,
   X,
   FileText,
-  Users2
+  Users2,
+  Megaphone
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 
 
@@ -71,9 +73,27 @@ const SidebarItem = ({ item, onClose }) => {
   )
 }
 
-const Sidebar = ({ isOpen, onClose }) => {
+const Sidebar = ({ isOpen, onClose, identity }) => {
   const logout = useAuthStore((s) => s.logout)
   const role = useAuthStore((s) => s.role)
+  const user = useAuthStore((s) => s.user)
+
+  // A Head Teacher / Principal who also teaches gets a link to the teacher pages
+  const [teaches, setTeaches] = useState(false)
+  useEffect(() => {
+    const check = async () => {
+      if (role !== 'Headmaster' || !user?.id) return
+      const { data: me } = await supabase
+        .from('staff').select('id').eq('auth_user_id', user.id).maybeSingle()
+      if (!me) return
+      const { count } = await supabase
+        .from('teacher_classes')
+        .select('id', { count: 'exact', head: true })
+        .eq('staff_id', me.id)
+      setTeaches((count || 0) > 0)
+    }
+    check()
+  }, [role, user?.id])
   const schoolName = useAuthStore((s) => s.schoolName)
   const schoolLogo = useAuthStore((s) => s.schoolLogo)
   const navigate = useNavigate()
@@ -133,6 +153,9 @@ const Sidebar = ({ isOpen, onClose }) => {
         { label: 'Outstanding Fees', path: '/admin/fees/outstanding' },
       ],
     },
+    { label: 'Parents', icon: Users2, path: '/admin/parents' },
+    { label: 'Announcements', icon: Megaphone, path: '/admin/announcements' },
+    ...(teaches ? [{ label: 'My Teaching', icon: BookOpen, path: '/teacher/dashboard' }] : []),
     { label: 'School Settings', icon: Settings, path: '/admin/settings' },
   ]
 
@@ -181,7 +204,11 @@ const Sidebar = ({ isOpen, onClose }) => {
               <p className="text-white font-bold text-sm leading-tight truncate">
                 {schoolName || 'School'}
               </p>
-              <p className="text-blue-300 text-xs">Management System</p>
+              <p className="text-blue-300 text-xs truncate">
+                {role === 'Headmaster'
+                  ? `${identity?.position || 'Headmaster'}${identity?.sectionNames?.length ? ' · ' + identity.sectionNames.join(', ') : ''}`
+                  : 'Management System'}
+              </p>
             </div>
           </div>
           {/* Close button — mobile only */}

@@ -3,9 +3,11 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { PlusCircle, Pencil, ToggleLeft, ToggleRight, Megaphone } from 'lucide-react'
+import { useSections } from '../../../hooks/useSections'
 
 const Announcements = () => {
   const { schoolId, user } = useAuthStore()
+  const { sections, allSections, sectionIds, restricted } = useSections()
   const [announcements, setAnnouncements] = useState([])
   const [staffId, setStaffId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -15,7 +17,7 @@ const Announcements = () => {
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
 
-  const [form, setForm] = useState({ title: '', content: '' })
+  const [form, setForm] = useState({ title: '', content: '', section_id: '' })
 
   const fetchAll = async () => {
     setLoading(true)
@@ -54,6 +56,7 @@ const Announcements = () => {
           .update({
             title: form.title,
             content: form.content,
+            section_id: form.section_id || null,
             updated_at: new Date(),
           })
           .eq('id', editing.id)
@@ -65,6 +68,7 @@ const Announcements = () => {
           school_id: schoolId,
           title: form.title,
           content: form.content,
+          section_id: form.section_id || null,
           created_by: staffId || null,
           is_active: true,
         }])
@@ -73,7 +77,7 @@ const Announcements = () => {
       setSuccess(editing ? 'Announcement updated!' : 'Announcement posted!')
       setShowForm(false)
       setEditing(null)
-      setForm({ title: '', content: '' })
+      setForm({ title: '', content: '', section_id: '' })
       await fetchAll()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
@@ -85,7 +89,7 @@ const Announcements = () => {
 
   const handleEdit = (announcement) => {
     setEditing(announcement)
-    setForm({ title: announcement.title, content: announcement.content })
+    setForm({ title: announcement.title, content: announcement.content, section_id: announcement.section_id || '' })
     setShowForm(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -97,6 +101,12 @@ const Announcements = () => {
       .eq('id', announcement.id)
     await fetchAll()
   }
+
+  // A Head Teacher / Principal only sees the announcements of their own sections
+  const visibleAnnouncements = restricted
+    ? announcements.filter(a => a.section_id && sectionIds.includes(a.section_id))
+    : announcements
+  const sectionLabel = (id) => allSections.find(s => s.id === id)?.name || 'Whole school'
 
   if (loading) return (
     <AdminLayout>
@@ -110,14 +120,14 @@ const Announcements = () => {
         <div>
           <h1 className="text-2xl font-bold text-primary">Announcements</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Post notices visible to all staff and parents.
+            Post notices for the whole school, or for one section.
           </p>
         </div>
         <button
           onClick={() => {
             setShowForm(!showForm)
             setEditing(null)
-            setForm({ title: '', content: '' })
+            setForm({ title: '', content: '', section_id: '' })
           }}
           className="flex items-center gap-2 bg-primary hover:bg-primary-light text-white font-semibold px-5 py-2.5 rounded-lg transition"
         >
@@ -170,6 +180,20 @@ const Announcements = () => {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition resize-none"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Send to {restricted && <span className="text-red-500">*</span>}
+              </label>
+              <select
+                value={form.section_id}
+                onChange={(e) => setForm({ ...form, section_id: e.target.value })}
+                required={restricted}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+              >
+                <option value="">{restricted ? 'Select Section' : 'Whole school'}</option>
+                {sections.map(s => <option key={s.id} value={s.id}>{s.name} only</option>)}
+              </select>
+            </div>
             <div className="flex gap-3 pt-1">
               <button
                 type="submit"
@@ -191,7 +215,7 @@ const Announcements = () => {
       )}
 
       {/* Announcements List */}
-      {announcements.length === 0 ? (
+      {visibleAnnouncements.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-16 text-center">
           <Megaphone size={36} className="mx-auto text-gray-200 mb-3" />
           <p className="text-gray-400 text-sm">No announcements yet.</p>
@@ -201,7 +225,7 @@ const Announcements = () => {
         </div>
       ) : (
         <div className="space-y-4 max-w-3xl">
-          {announcements.map(announcement => (
+          {visibleAnnouncements.map(announcement => (
             <div
               key={announcement.id}
               className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${
@@ -233,7 +257,7 @@ const Announcements = () => {
                     </p>
                     <div className="flex items-center gap-3 mt-3">
                       <p className="text-xs text-gray-400">
-                        Posted by {announcement.staff?.first_name} {announcement.staff?.last_name}
+                        Posted by {announcement.staff?.first_name} {announcement.staff?.last_name} · {sectionLabel(announcement.section_id)}
                       </p>
                       <span className="text-gray-200">·</span>
                       <p className="text-xs text-gray-400">

@@ -25,7 +25,9 @@ const StaffList = () => {
       .order('first_name')
     // A Head Teacher / Principal only sees staff of the sections they manage
     if (restricted) {
-      query = query.in('section_id', sectionIds.length > 0 ? sectionIds : ['00000000-0000-0000-0000-000000000000'])
+      query = query
+        .in('section_id', sectionIds.length > 0 ? sectionIds : ['00000000-0000-0000-0000-000000000000'])
+        .not('role', 'in', '("Head Teacher","Principal")')
     }
     const { data } = await query
 
