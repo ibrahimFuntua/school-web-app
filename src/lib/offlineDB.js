@@ -174,6 +174,20 @@ export const getCachedTeacherMeta = () => {
   return { staffId, assignedClasses }
 }
 
+// The classes a teacher can enter marks for (whole classes, and subject-per-class
+// assignments with the subject ids). Kept separate from the register classes above.
+export const cacheGradeClasses = (list) => {
+  localStorage.setItem('cached_grade_classes', JSON.stringify(list || []))
+}
+
+export const getCachedGradeClasses = () => {
+  try {
+    return JSON.parse(localStorage.getItem('cached_grade_classes') || 'null')
+  } catch {
+    return null
+  }
+}
+
 // ---- SCHOOL CONFIG (score config + grade scale) ----
 // Needed offline too — without it, grade calculation has nothing to match
 // against and would mark every student's total as 'F'.

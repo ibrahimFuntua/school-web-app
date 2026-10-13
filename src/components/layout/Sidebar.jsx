@@ -90,7 +90,15 @@ const Sidebar = ({ isOpen, onClose, identity }) => {
         .from('teacher_classes')
         .select('id', { count: 'exact', head: true })
         .eq('staff_id', me.id)
-      setTeaches((count || 0) > 0)
+      let total = count || 0
+      if (!total) {
+        const { count: taught } = await supabase
+          .from('teaching_assignments')
+          .select('id', { count: 'exact', head: true })
+          .eq('staff_id', me.id)
+        total = taught || 0
+      }
+      setTeaches(total > 0)
     }
     check()
   }, [role, user?.id])

@@ -5,6 +5,8 @@ import { useAuthStore } from '../../../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
 import { useSections } from '../../../hooks/useSections'
+import TeachingAssignments from '../../../components/staff/TeachingAssignments'
+import { classModeOf } from '../../../lib/teacherAssignments'
 import {
   GENDERS,
   EMPLOYMENT_STATUSES,
@@ -14,7 +16,7 @@ const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant',
 
 const StaffForm = () => {
   const { schoolId } = useAuthStore()
-  const { sections, restricted } = useSections()
+  const { sections, allSections, restricted } = useSections()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [createLogin, setCreateLogin] = useState(false)
@@ -23,6 +25,8 @@ const StaffForm = () => {
   const [classes, setClasses] = useState([])
   const [arms, setArms] = useState([])
   const [selectedClasses, setSelectedClasses] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [assignments, setAssignments] = useState([])
 
   const [form, setForm] = useState({
     first_name: '',
@@ -53,6 +57,14 @@ const StaffForm = () => {
         .eq('is_active', true)
         .order('section').order('name')
       setClasses(data || [])
+
+      const { data: subjectData } = await supabase
+        .from('subjects')
+        .select('id, name, section')
+        .eq('school_id', schoolId)
+        .eq('is_active', true)
+        .order('name')
+      setSubjects(subjectData || [])
     }
     if (schoolId) fetchClasses()
   }, [schoolId])
@@ -63,6 +75,13 @@ const StaffForm = () => {
     // A role has to fit the staff type, so clear it when the type changes
     if (name === 'staff_type' && !rolesForType(value, undefined, !restricted).includes(next.role)) next.role = ''
     setForm(next)
+  }
+
+  const handleAssignmentToggle = (classId, subjectId) => {
+    const key = `${classId}|${subjectId}`
+    setAssignments(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    )
   }
 
   const handleClassToggle = (classId, armId = null) => {
@@ -127,12 +146,27 @@ const StaffForm = () => {
       const problems = []
 
       if (form.staff_type === 'Teaching' && selectedClasses.length > 0) {
-        const assignments = selectedClasses.map(key => {
+        const classRows = selectedClasses.map(key => {
           const parts = key.split('_')
-          return { staff_id: newStaff.id, class_id: parts[0], arm_id: parts[1] || null }
+          return {
+            staff_id: newStaff.id,
+            class_id: parts[0],
+            arm_id: parts[1] || null,
+            // in a "by subject" section this row means Form Master / Mistress
+            is_class_teacher: classModeOf(classes.find(c => c.id === parts[0]), allSections) === 'by_subject',
+          }
         })
-        const { error: classError } = await supabase.from('teacher_classes').insert(assignments)
+        const { error: classError } = await supabase.from('teacher_classes').insert(classRows)
         if (classError) problems.push('the classes could not be saved')
+      }
+
+      if (form.staff_type === 'Teaching' && assignments.length > 0) {
+        const subjectRows = assignments.map(key => {
+          const [class_id, subject_id] = key.split('|')
+          return { staff_id: newStaff.id, class_id, subject_id }
+        })
+        const { error: subjectError } = await supabase.from('teaching_assignments').insert(subjectRows)
+        if (subjectError) problems.push('the subjects could not be saved')
       }
 
       if (createLogin) {
@@ -301,57 +335,17 @@ const StaffForm = () => {
           </div>
         </div>
 
-        {/* Class Assignment — Teaching Staff Only */}
+                {/* Class and subject assignment — Teaching Staff Only */}
         {form.staff_type === 'Teaching' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1 pb-2 border-b border-gray-100">
-              Class Assignment
-            </h2>
-            <p className="text-xs text-gray-400 mb-4">
-              Select the class(es) this teacher will handle.
-            </p>
-            <div className="space-y-3">
-              {classes.map((cls) => (
-                <div key={cls.id}>
-                  {!cls.has_arms ? (
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedClasses.includes(cls.id)}
-                        onChange={() => handleClassToggle(cls.id)}
-                        className="w-4 h-4 accent-primary"
-                      />
-                      <span className="text-sm text-gray-700">
-                        {cls.name}
-                        <span className="text-xs text-gray-400 ml-2">({cls.section})</span>
-                      </span>
-                    </label>
-                  ) : (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600 mb-1">
-                        {cls.name} <span className="text-xs text-gray-400">({cls.section})</span>
-                      </p>
-                      <div className="ml-4 space-y-1">
-                        {cls.arms?.filter(a => a.is_active).map(arm => (
-                          <label key={arm.id} className="flex items-center gap-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedClasses.includes(`${cls.id}_${arm.id}`)}
-                              onChange={() => handleClassToggle(cls.id, arm.id)}
-                              className="w-4 h-4 accent-primary"
-                            />
-                            <span className="text-sm text-gray-700">
-                              {cls.name} {arm.name}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <TeachingAssignments
+            classes={restricted ? classes.filter(c => sections.some(s => s.name === c.section)) : classes}
+            subjects={subjects}
+            allSections={allSections}
+            selectedClasses={selectedClasses}
+            onToggleClass={handleClassToggle}
+            assignments={assignments}
+            onToggleAssignment={handleAssignmentToggle}
+          />
         )}
         {/* Login Creation */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">

@@ -6,6 +6,8 @@ import { GENDERS, EMPLOYMENT_STATUSES } from '../../../lib/constants'
 import { ArrowLeft, Save } from 'lucide-react'
 import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
 import { useSections } from '../../../hooks/useSections'
+import TeachingAssignments from '../../../components/staff/TeachingAssignments'
+import { classModeOf } from '../../../lib/teacherAssignments'
 
 const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
 
@@ -17,9 +19,11 @@ const StaffProfile = () => {
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
   const [form, setForm] = useState(null)
-  const { sections, sectionIds, restricted, loading: sectionsLoading } = useSections()
+  const { sections, allSections, sectionIds, restricted, loading: sectionsLoading } = useSections()
   const [classes, setClasses] = useState([])
   const [selectedClasses, setSelectedClasses] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [assignments, setAssignments] = useState([])
   const [schoolId, setSchoolId] = useState(null)
   const [hasLogin, setHasLogin] = useState(false)
   const [creatingLogin, setCreatingLogin] = useState(false)
@@ -65,6 +69,20 @@ const StaffProfile = () => {
           .eq('is_active', true)
           .order('section').order('name')
         setClasses(classData || [])
+
+        // Subjects this teacher teaches (secondary style)
+        const { data: subjectData } = await supabase
+          .from('subjects')
+          .select('id, name, section')
+          .eq('school_id', data.school_id)
+          .eq('is_active', true)
+          .order('name')
+        setSubjects(subjectData || [])
+        const { data: taughtData } = await supabase
+          .from('teaching_assignments')
+          .select('class_id, subject_id')
+          .eq('staff_id', id)
+        setAssignments((taughtData || []).map(a => `${a.class_id}|${a.subject_id}`))
       }
       setLoading(false)
     }
@@ -164,6 +182,13 @@ if (result.error) throw new Error(result.error)
     setForm(next)
   }
 
+  const handleAssignmentToggle = (classId, subjectId) => {
+    const key = `${classId}|${subjectId}`
+    setAssignments(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    )
+  }
+
   const handleClassToggle = (classId, armId = null) => {
     const key = armId ? `${classId}_${armId}` : classId
     setSelectedClasses(prev =>
@@ -218,7 +243,13 @@ if (result.error) throw new Error(result.error)
           .filter(key => !currentKeys.has(key))
           .map(key => {
             const parts = key.split('_')
-            return { staff_id: id, class_id: parts[0], arm_id: parts[1] || null }
+            return {
+              staff_id: id,
+              class_id: parts[0],
+              arm_id: parts[1] || null,
+              // in a "by subject" section this row means Form Master / Mistress
+              is_class_teacher: classModeOf(classes.find(c => c.id === parts[0]), allSections) === 'by_subject',
+            }
           })
 
         if (toAdd.length > 0) {
@@ -231,6 +262,37 @@ if (result.error) throw new Error(result.error)
             .delete()
             .in('id', toRemove.map(a => a.id))
           if (deleteError) throw deleteError
+        }
+      }
+
+      // Subjects taught (secondary style): add new ones first, then remove the ones unticked
+      if (form.staff_type === 'Teaching') {
+        const { data: taught, error: taughtError } = await supabase
+          .from('teaching_assignments')
+          .select('id, class_id, subject_id')
+          .eq('staff_id', id)
+        if (taughtError) throw taughtError
+
+        const taughtKey = (a) => `${a.class_id}|${a.subject_id}`
+        const haveKeys = new Set((taught || []).map(taughtKey))
+        const removeRows = (taught || []).filter(a => !assignments.includes(taughtKey(a)))
+        const addRows = assignments
+          .filter(key => !haveKeys.has(key))
+          .map(key => {
+            const [class_id, subject_id] = key.split('|')
+            return { staff_id: id, class_id, subject_id }
+          })
+
+        if (addRows.length > 0) {
+          const { error: addError } = await supabase.from('teaching_assignments').insert(addRows)
+          if (addError) throw addError
+        }
+        if (removeRows.length > 0) {
+          const { error: removeError } = await supabase
+            .from('teaching_assignments')
+            .delete()
+            .in('id', removeRows.map(a => a.id))
+          if (removeError) throw removeError
         }
       }
 
@@ -433,60 +495,18 @@ if (result.error) throw new Error(result.error)
             </div>
           </div>
         </div>
-
-        {/* Class Assignment */}
+                {/* Class and subject assignment */}
         {form.staff_type === 'Teaching' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1 pb-2 border-b border-gray-100">
-              Class Assignment
-            </h2>
-            <p className="text-xs text-gray-400 mb-4">
-              Update the classes this teacher handles.
-            </p>
-            <div className="space-y-3">
-              {classes.map(cls => (
-                <div key={cls.id}>
-                  {!cls.has_arms ? (
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedClasses.includes(cls.id)}
-                        onChange={() => handleClassToggle(cls.id)}
-                        className="w-4 h-4 accent-primary"
-                      />
-                      <span className="text-sm text-gray-700">
-                        {cls.name}
-                        <span className="text-xs text-gray-400 ml-2">({cls.section})</span>
-                      </span>
-                    </label>
-                  ) : (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600 mb-1">
-                        {cls.name} <span className="text-xs text-gray-400">({cls.section})</span>
-                      </p>
-                      <div className="ml-4 space-y-1">
-                        {cls.arms?.filter(a => a.is_active).map(arm => (
-                          <label key={arm.id} className="flex items-center gap-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selectedClasses.includes(`${cls.id}_${arm.id}`)}
-                              onChange={() => handleClassToggle(cls.id, arm.id)}
-                              className="w-4 h-4 accent-primary"
-                            />
-                            <span className="text-sm text-gray-700">
-                              {cls.name} {arm.name}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <TeachingAssignments
+            classes={restricted ? classes.filter(c => sections.some(s => s.name === c.section)) : classes}
+            subjects={subjects}
+            allSections={allSections}
+            selectedClasses={selectedClasses}
+            onToggleClass={handleClassToggle}
+            assignments={assignments}
+            onToggleAssignment={handleAssignmentToggle}
+          />
         )}
-
         {/* Login Management */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">

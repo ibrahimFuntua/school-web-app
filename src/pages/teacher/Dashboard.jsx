@@ -8,7 +8,8 @@ import {
   ClipboardList, BookOpen, BarChart2,
   FileText, Users, CheckCircle
 } from 'lucide-react'
-import { cacheStudents, cacheClasses, cacheSubjects, cacheTeacherMeta } from '../../lib/offlineDB'
+import { cacheStudents, cacheClasses, cacheSubjects, cacheTeacherMeta, cacheGradeClasses } from '../../lib/offlineDB'
+import { loadTeacherClasses } from '../../lib/teacherAssignments'
 import { attachDepartmentLinks } from '../../lib/departmentUtils'
 
 const TeacherDashboard = () => {
@@ -18,6 +19,7 @@ const TeacherDashboard = () => {
 
   const [staffName, setStaffName] = useState('')
   const [assignedClasses, setAssignedClasses] = useState([])
+  const [teachingList, setTeachingList] = useState([])
   const [todayAttendance, setTodayAttendance] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -37,18 +39,20 @@ const TeacherDashboard = () => {
         setStaffName(`${staffData.first_name} ${staffData.last_name}`)
 
         // Get assigned classes
-        const { data: classData } = await supabase
-  .from('teacher_classes')
-  .select('*, classes(id, name, section), arms(id, name, department_id)')
-  .eq('staff_id', staffData.id)
-        setAssignedClasses(classData || [])
+        // Classes they register / handle as a whole, and the classes they teach subjects in
+        const { classRows, gradeClasses } = await loadTeacherClasses(staffData.id, schoolId)
+        const classData = classRows
+        setAssignedClasses(classData)
+        const subjectClasses = gradeClasses.filter(c => c.viaSubject)
+        const workClasses = [...classData, ...subjectClasses]
 
         // Cache everything a teacher needs to work offline
-        if (classData?.length > 0 && navigator.onLine) {
+        if (workClasses.length > 0 && navigator.onLine) {
           cacheTeacherMeta(staffData.id, classData)
-          await cacheClasses(classData.map(c => c.classes))
+          cacheGradeClasses(gradeClasses)
+          await cacheClasses(workClasses.map(c => c.classes))
 
-          const classIds = classData.map(c => c.classes.id)
+          const classIds = [...new Set(workClasses.map(c => c.classes.id))]
           const { data: allStudents } = await supabase
             .from('students')
             .select('id, first_name, middle_name, last_name, admission_number, class_id, arm_id, department_id')
@@ -56,7 +60,7 @@ const TeacherDashboard = () => {
             .eq('status', 'Active')
           if (allStudents) await cacheStudents(allStudents)
 
-          const sections = [...new Set(classData.map(c => c.classes.section))]
+          const sections = [...new Set(workClasses.map(c => c.classes.section))]
           const { data: subjectData } = await supabase
             .from('subjects')
             .select('*')
@@ -64,8 +68,14 @@ const TeacherDashboard = () => {
             .eq('is_active', true)
             .or(`section.is.null,section.in.(${sections.map(s => `"${s}"`).join(',')})`)
           if (subjectData) await cacheSubjects(await attachDepartmentLinks(subjectData))
-        }
 
+          // A short "subjects I teach" summary for the dashboard
+          setTeachingList(subjectClasses.map(c => ({
+            id: c.class_id,
+            name: c.classes.name,
+            subjects: (subjectData || []).filter(s => c.subjectIds.includes(s.id)).map(s => s.name),
+          })))
+        }    
         // Today's attendance summary
         const today = new Date().toISOString().split('T')[0]
         if (classData?.length > 0) {
@@ -161,7 +171,7 @@ const TeacherDashboard = () => {
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
           My Classes
         </h2>
-        {assignedClasses.length === 0 ? (
+        {assignedClasses.length === 0 && teachingList.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-8 text-center text-gray-400">
             <Users size={32} className="mx-auto mb-2 opacity-30" />
             <p className="text-sm">No classes assigned yet.</p>
@@ -191,6 +201,22 @@ const TeacherDashboard = () => {
           </div>
         )}
       </div>
+
+      {teachingList.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Subjects I Teach
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {teachingList.map(t => (
+              <div key={t.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+                <p className="font-semibold text-gray-800">{t.name}</p>
+                <p className="text-xs text-gray-500 mt-1">{t.subjects.join(', ') || '-'}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div>

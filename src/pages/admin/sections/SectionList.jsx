@@ -10,7 +10,7 @@ const SectionList = () => {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
-  const [form, setForm] = useState({ name: '', order_number: '', managed_by: '' })
+  const [form, setForm] = useState({ name: '', order_number: '', managed_by: '', assignment_mode: 'by_class' })
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
@@ -39,7 +39,7 @@ const SectionList = () => {
         order_number: form.order_number === '' ? sections.length + 1 : Number(form.order_number),
         school_id: schoolId,
         // Only the Admin decides who manages a section
-        ...(role === 'Admin' ? { managed_by: form.managed_by || null } : {}),
+        ...(role === 'Admin' ? { managed_by: form.managed_by || null, assignment_mode: form.assignment_mode || 'by_class' } : {}),
       }
       const nameTaken = sections.some(s =>
         s.id !== editingSection?.id && s.name.toLowerCase() === payload.name.toLowerCase()
@@ -68,7 +68,7 @@ const SectionList = () => {
         if (error) throw error
         setSuccess('Section added!')
       }
-      setForm({ name: '', order_number: '', managed_by: '' })
+      setForm({ name: '', order_number: '', managed_by: '', assignment_mode: 'by_class' })
       setShowForm(false)
       setEditingSection(null)
       fetchSections()
@@ -82,7 +82,7 @@ const SectionList = () => {
 
   const handleEdit = (section) => {
     setEditingSection(section)
-    setForm({ name: section.name, order_number: section.order_number, managed_by: section.managed_by || '' })
+    setForm({ name: section.name, order_number: section.order_number, managed_by: section.managed_by || '', assignment_mode: section.assignment_mode || 'by_class' })
     setShowForm(true)
   }
 
@@ -126,7 +126,7 @@ const SectionList = () => {
           onClick={() => {
             setShowForm(!showForm)
             setEditingSection(null)
-            setForm({ name: '', order_number: '', managed_by: '' })
+            setForm({ name: '', order_number: '', managed_by: '', assignment_mode: 'by_class' })
           }}
           className="flex items-center gap-2 bg-primary hover:bg-primary-light text-white font-semibold px-5 py-2.5 rounded-lg transition"
         >
@@ -196,6 +196,21 @@ const SectionList = () => {
                 </p>
               </div>
             )}
+            {role === 'Admin' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Teachers are assigned
+                </label>
+                <select
+                  value={form.assignment_mode}
+                  onChange={(e) => setForm({ ...form, assignment_mode: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                >
+                  <option value="by_class">By class (one teacher handles the whole class)</option>
+                  <option value="by_subject">By subject (each teacher takes subjects in classes)</option>
+                </select>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button
                 type="submit"
@@ -228,7 +243,7 @@ const SectionList = () => {
             <div>
               <span className="font-semibold text-gray-800 text-sm">{section.name}</span>
               <p className="text-xs text-gray-400">
-                Managed by: {section.managed_by || 'Admin only'}
+                Managed by: {section.managed_by || 'Admin only'} · Teachers assigned {section.assignment_mode === 'by_subject' ? 'by subject' : 'by class'}
               </p>
             </div>
             <div className="flex items-center gap-2">

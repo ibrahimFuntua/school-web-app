@@ -6,8 +6,9 @@ import { Save } from 'lucide-react'
 import {
   savePendingGrades, getCachedStudents, getCachedSubjects,
   getCachedTeacherMeta, getCachedSchoolConfig,
-  cacheTeacherMeta, cacheSchoolConfig,
+  cacheGradeClasses, getCachedGradeClasses, cacheSchoolConfig,
 } from '../../../lib/offlineDB'
+import { loadTeacherClasses } from '../../../lib/teacherAssignments'
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
 import { attachDepartmentLinks, subjectFitsDepartment } from '../../../lib/departmentUtils'
@@ -53,23 +54,22 @@ const EnterGrades = () => {
         if (!staffData) return
         setStaffId(staffData.id)
 
-        const { data: classData } = await supabase
-    .from('teacher_classes')
-    .select('*, classes(id, name, section), arms(id, name, department_id)')
-    .eq('staff_id', staffData.id)
-        setAssignedClasses(classData || [])
+        // Whole classes, plus the subject-per-class assignments of a subject teacher
+        const { gradeClasses } = await loadTeacherClasses(staffData.id, schoolId)
+        const classData = gradeClasses
+        setAssignedClasses(classData)
 
         const { data: schoolData } = await supabase
           .from('schools').select('score_config, grade_scale').eq('id', schoolId).single()
         if (schoolData?.score_config) setScoreConfig(schoolData.score_config)
         if (schoolData?.grade_scale) setGradeScale(schoolData.grade_scale)
         if (schoolData) cacheSchoolConfig(schoolData.score_config, schoolData.grade_scale)
-        if (classData?.length > 0) cacheTeacherMeta(staffData.id, classData)
+        if (classData.length > 0) cacheGradeClasses(classData)
       } else {
         const { staffId: cachedStaffId, assignedClasses: cachedClasses } = getCachedTeacherMeta()
         if (cachedStaffId) {
           setStaffId(cachedStaffId)
-          setAssignedClasses(cachedClasses)
+          setAssignedClasses(getCachedGradeClasses() || cachedClasses)
         }
         const { scoreConfig: cachedScoreConfig, gradeScale: cachedGradeScale } = getCachedSchoolConfig()
         if (cachedScoreConfig) setScoreConfig(cachedScoreConfig)
@@ -106,6 +106,11 @@ const EnterGrades = () => {
       if (section === departmentSectionName && departmentMode === 'by_arm' && selectedClass.arm_id) {
         const armDepartmentId = selectedClass.arms?.department_id || null
         list = list.filter(s => subjectFitsDepartment(s, armDepartmentId))
+      }
+
+      // A subject teacher only gets the subjects they teach in this class
+      if (selectedClass.viaSubject) {
+        list = list.filter(s => selectedClass.subjectIds.includes(s.id))
       }
 
       setSubjects(list)

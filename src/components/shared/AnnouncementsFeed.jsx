@@ -22,6 +22,9 @@ const findMySectionNames = async (role, userId) => {
       const { data } = await supabase
         .from('teacher_classes').select('classes(section)').eq('staff_id', staff.id)
       ;(data || []).forEach(r => { if (r.classes?.section) names.add(r.classes.section) })
+      const { data: taught } = await supabase
+        .from('teaching_assignments').select('classes(section)').eq('staff_id', staff.id)
+      ;(taught || []).forEach(r => { if (r.classes?.section) names.add(r.classes.section) })
     }
   }
   return [...names]
