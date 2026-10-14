@@ -8,10 +8,10 @@ export const classModeOf = (cls, allSections) =>
 // What a teacher is responsible for:
 // - classRows: the classes they register / handle as a whole (class teacher or Form Master)
 // - gradeClasses: the classes they can enter marks for, ready for the grade screen.
-//     Whole-class teachers get every subject of their class.
-//     Subject teachers get one entry per class carrying ONLY the subjects they teach there.
-export const loadTeacherClasses = async (staffId, schoolId) => {
-  const [classRes, taughtRes, sectionRes] = await Promise.all([
+//     A class they handle as a whole (class teacher, or Form Master) gives EVERY subject of that class.
+//     A subject teacher gets one entry per class carrying ONLY the subjects they teach there.
+export const loadTeacherClasses = async (staffId) => {
+  const [classRes, taughtRes] = await Promise.all([
     supabase
       .from('teacher_classes')
       .select('*, classes(id, name, section), arms(id, name, department_id)')
@@ -20,22 +20,18 @@ export const loadTeacherClasses = async (staffId, schoolId) => {
       .from('teaching_assignments')
       .select('class_id, subject_id, classes(id, name, section)')
       .eq('staff_id', staffId),
-    supabase
-      .from('school_sections')
-      .select('name, assignment_mode')
-      .eq('school_id', schoolId),
   ])
 
   const classRows = classRes.data || []
-  const modeBySection = {}
-  ;(sectionRes.data || []).forEach(s => { modeBySection[s.name] = s.assignment_mode || 'by_class' })
 
-  // In a "by subject" section a class row only means Form Master: it gives the register, not marks
-  const wholeClass = classRows.filter(c => c.classes && modeBySection[c.classes.section] !== 'by_subject')
+  // A class row means the whole class: the class teacher in Nursery / Primary, or the Form Master
+  // in a "by subject" section. Either way they can enter marks for every subject of that class.
+  const wholeClass = classRows.filter(c => c.classes)
+  const coveredClassIds = new Set(wholeClass.filter(c => !c.arm_id).map(c => c.class_id))
 
   const byClass = {}
   ;(taughtRes.data || []).forEach(a => {
-    if (!a.classes) return
+    if (!a.classes || coveredClassIds.has(a.class_id)) return
     if (!byClass[a.class_id]) {
       byClass[a.class_id] = {
         id: `taught-${a.class_id}`,
