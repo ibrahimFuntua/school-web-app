@@ -79,7 +79,9 @@ const TeachingAssignments = ({
             <div className="space-y-2">
               {bySubjectList.map(cls => {
                 const classSubjects = subjects.filter(s => !s.section || s.section === cls.section)
-                const picked = classSubjects.filter(s => assignments.includes(`${cls.id}|${s.id}`)).length
+                const armList = cls.has_arms ? (cls.arms || []).filter(a => a.is_active) : []
+                // every ticked subject of this class, whole class or one arm
+                const picked = assignments.filter(k => k.split('|')[0].split('_')[0] === cls.id).length
                 return (
                   <details key={cls.id} className="border border-gray-100 rounded-lg">
                     <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-gray-700 flex items-center justify-between">
@@ -87,23 +89,51 @@ const TeachingAssignments = ({
                         {cls.name} <span className="text-xs text-gray-400">({cls.section})</span>
                       </span>
                       {picked > 0 && (
-                        <span className="text-xs text-primary">{picked} subject{picked === 1 ? '' : 's'}</span>
+                        <span className="text-xs text-primary">{picked} ticked</span>
                       )}
                     </summary>
-                    <div className="px-4 pb-3 pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {classSubjects.length === 0 && (
-                        <p className="text-xs text-gray-400">No subjects for this section yet.</p>
-                      )}
-                      {classSubjects.map(s => (
-                        <label key={s.id} className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={assignments.includes(`${cls.id}|${s.id}`)}
-                            onChange={() => onToggleAssignment(cls.id, s.id)}
-                            className="w-4 h-4 accent-primary"
-                          />
-                          <span className="text-sm text-gray-700">{s.name}</span>
-                        </label>
+                    <div className="px-4 pb-3 pt-1 space-y-3">
+                      <div>
+                        {armList.length > 0 && (
+                          <p className="text-xs font-medium text-gray-500 mb-1">Whole class (all arms)</p>
+                        )}
+                        {classSubjects.length === 0 && (
+                          <p className="text-xs text-gray-400">No subjects for this section yet.</p>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {classSubjects.map(s => (
+                            <label key={s.id} className="flex items-center gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={assignments.includes(`${cls.id}|${s.id}`)}
+                                onChange={() => onToggleAssignment(cls.id, s.id)}
+                                className="w-4 h-4 accent-primary"
+                              />
+                              <span className="text-sm text-gray-700">{s.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {armList.map(arm => (
+                        <details key={arm.id} className="border border-gray-100 rounded-lg">
+                          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">
+                            Only {cls.name} {arm.name}
+                          </summary>
+                          <div className="px-3 pb-3 pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {classSubjects.map(s => (
+                              <label key={s.id} className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={assignments.includes(`${cls.id}_${arm.id}|${s.id}`)}
+                                  onChange={() => onToggleAssignment(`${cls.id}_${arm.id}`, s.id)}
+                                  className="w-4 h-4 accent-primary"
+                                />
+                                <span className="text-sm text-gray-700">{s.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </details>
                       ))}
                     </div>
                   </details>
@@ -111,7 +141,6 @@ const TeachingAssignments = ({
               })}
             </div>
           </div>
-
           <div className={card}>
             <h2 className={title}>Form Master / Mistress</h2>
             <p className="text-xs text-gray-400 mb-4">

@@ -7,6 +7,7 @@ import { ArrowLeft, Save } from 'lucide-react'
 import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
 import { useSections } from '../../../hooks/useSections'
 import TeachingAssignments from '../../../components/staff/TeachingAssignments'
+import SectionChecks from '../../../components/staff/SectionChecks'
 import { classModeOf } from '../../../lib/teacherAssignments'
 
 const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
@@ -24,6 +25,7 @@ const StaffProfile = () => {
   const [selectedClasses, setSelectedClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [assignments, setAssignments] = useState([])
+  const [staffSectionIds, setStaffSectionIds] = useState([])
   const [schoolId, setSchoolId] = useState(null)
   const [hasLogin, setHasLogin] = useState(false)
   const [creatingLogin, setCreatingLogin] = useState(false)
@@ -43,6 +45,13 @@ const StaffProfile = () => {
       if (data) {
         setForm(data)
         setSchoolId(data.school_id)
+
+        // Sections this person works in
+        const { data: sectionData } = await supabase
+          .from('staff_sections')
+          .select('section_id')
+          .eq('staff_id', id)
+        setStaffSectionIds((sectionData || []).map(r => r.section_id))
 
         // Check if staff already has a login
         if (data.auth_user_id) {
@@ -80,9 +89,11 @@ const StaffProfile = () => {
         setSubjects(subjectData || [])
         const { data: taughtData } = await supabase
           .from('teaching_assignments')
-          .select('class_id, subject_id')
+          .select('class_id, arm_id, subject_id')
           .eq('staff_id', id)
-        setAssignments((taughtData || []).map(a => `${a.class_id}|${a.subject_id}`))
+        setAssignments((taughtData || []).map(a =>
+          `${a.class_id}${a.arm_id ? '_' + a.arm_id : ''}|${a.subject_id}`
+        ))
       }
       setLoading(false)
     }
@@ -174,12 +185,37 @@ if (result.error) throw new Error(result.error)
     }
   }
 
+  const handleRemoveLogin = async () => {
+    const name = `${form.first_name} ${form.last_name}`
+    if (!window.confirm(
+      `Remove the login of ${name}? They will no longer be able to sign in. ` +
+      'Their classes, marks and records stay. You can give them a new login later.'
+    )) return
+
+    setError('')
+    try {
+      await callEdgeFunction('update-staff-login', { staffId: id, removeLogin: true })
+      setHasLogin(false)
+      setShowLoginForm(false)
+      setLoginSuccess('Login removed.')
+      setTimeout(() => setLoginSuccess(''), 4000)
+    } catch (err) {
+      setError(`Could not remove the login: ${err.message}`)
+    }
+  }
+
   const handleChange = (e) => {
     const { name, value } = e.target
     const next = { ...form, [name]: value }
     // A role has to fit the staff type, so clear it when the type changes
     if (name === 'staff_type' && !rolesForType(value, undefined, !restricted).includes(next.role)) next.role = ''
     setForm(next)
+  }
+
+  const toggleStaffSection = (sectionId) => {
+    setStaffSectionIds(prev =>
+      prev.includes(sectionId) ? prev.filter(id => id !== sectionId) : [...prev, sectionId]
+    )
   }
 
   const handleAssignmentToggle = (classId, subjectId) => {
@@ -198,6 +234,10 @@ if (result.error) throw new Error(result.error)
 
   const handleSave = async (e) => {
     e.preventDefault()
+    if ((restricted || form.staff_type === 'Teaching') && staffSectionIds.length === 0) {
+      setError('Choose at least one section for this person.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -217,7 +257,7 @@ if (result.error) throw new Error(result.error)
           email: form.email,
           staff_type: form.staff_type,
           role: form.role,
-          section_id: form.section_id || null,
+          section_id: staffSectionIds[0] || null,
           date_of_employment: form.date_of_employment || null,
           employment_status: form.employment_status,
           qualification: form.qualification,
@@ -265,22 +305,51 @@ if (result.error) throw new Error(result.error)
         }
       }
 
+      // Sections: add new ones first, then remove the ones unticked
+      {
+        const { data: haveSections, error: haveError } = await supabase
+          .from('staff_sections')
+          .select('section_id')
+          .eq('staff_id', id)
+        if (haveError) throw haveError
+
+        const have = new Set((haveSections || []).map(r => r.section_id))
+        const toAddSections = staffSectionIds.filter(sid => !have.has(sid))
+        const toRemoveSections = [...have].filter(sid => !staffSectionIds.includes(sid))
+
+        if (toAddSections.length > 0) {
+          const { error: addSectionError } = await supabase
+            .from('staff_sections')
+            .insert(toAddSections.map(section_id => ({ staff_id: id, section_id })))
+          if (addSectionError) throw addSectionError
+        }
+        if (toRemoveSections.length > 0) {
+          const { error: removeSectionError } = await supabase
+            .from('staff_sections')
+            .delete()
+            .eq('staff_id', id)
+            .in('section_id', toRemoveSections)
+          if (removeSectionError) throw removeSectionError
+        }
+      }
+
       // Subjects taught (secondary style): add new ones first, then remove the ones unticked
       if (form.staff_type === 'Teaching') {
         const { data: taught, error: taughtError } = await supabase
           .from('teaching_assignments')
-          .select('id, class_id, subject_id')
+          .select('id, class_id, arm_id, subject_id')
           .eq('staff_id', id)
         if (taughtError) throw taughtError
 
-        const taughtKey = (a) => `${a.class_id}|${a.subject_id}`
+        const taughtKey = (a) => `${a.class_id}${a.arm_id ? '_' + a.arm_id : ''}|${a.subject_id}`
         const haveKeys = new Set((taught || []).map(taughtKey))
         const removeRows = (taught || []).filter(a => !assignments.includes(taughtKey(a)))
         const addRows = assignments
           .filter(key => !haveKeys.has(key))
           .map(key => {
-            const [class_id, subject_id] = key.split('|')
-            return { staff_id: id, class_id, subject_id }
+            const [classPart, subject_id] = key.split('|')
+            const [class_id, arm_id] = classPart.split('_')
+            return { staff_id: id, class_id, arm_id: arm_id || null, subject_id }
           })
 
         if (addRows.length > 0) {
@@ -330,7 +399,7 @@ if (result.error) throw new Error(result.error)
   )
 
   // A Head Teacher / Principal can only open staff of the sections they manage
-  if (restricted && form && (!sectionIds.includes(form.section_id) || ['Head Teacher', 'Principal'].includes(form.role))) return (
+  if (restricted && form && (!staffSectionIds.some(sid => sectionIds.includes(sid)) || ['Head Teacher', 'Principal'].includes(form.role))) return (
     <AdminLayout>
       <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-md">
         <p className="font-semibold text-gray-800 mb-1">No access</p>
@@ -464,21 +533,12 @@ if (result.error) throw new Error(result.error)
                 {rolesForType(form.staff_type, form.role, !restricted).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
-            <div>
-              <label className={labelClass}>Section</label>
-              <select
-                name="section_id"
-                value={form.section_id || ''}
-                onChange={handleChange}
-                required={restricted || form.staff_type === 'Teaching'}
-                className={inputClass}
-              >
-                <option value="">
-                  {restricted || form.staff_type === 'Teaching' ? 'Select Section' : 'Whole school (Admin only)'}
-                </option>
-                {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
+            <SectionChecks
+              sections={sections}
+              selectedIds={staffSectionIds}
+              onToggle={toggleStaffSection}
+              required={restricted || form.staff_type === 'Teaching'}
+            />
             <div>
               <label className={labelClass}>Employment Status</label>
               <select name="employment_status" value={form.employment_status || ''} onChange={handleChange} className={inputClass}>
@@ -563,6 +623,13 @@ if (result.error) throw new Error(result.error)
                   </div>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={handleRemoveLogin}
+                className="text-xs text-red-500 hover:text-red-700 underline"
+              >
+                Remove this login
+              </button>
             </div>
           ) : (
             <div className="space-y-3">

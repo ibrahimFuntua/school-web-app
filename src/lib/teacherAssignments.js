@@ -18,7 +18,7 @@ export const loadTeacherClasses = async (staffId) => {
       .eq('staff_id', staffId),
     supabase
       .from('teaching_assignments')
-      .select('class_id, subject_id, classes(id, name, section)')
+      .select('class_id, arm_id, subject_id, classes(id, name, section), arms(id, name, department_id)')
       .eq('staff_id', staffId),
   ])
 
@@ -27,24 +27,26 @@ export const loadTeacherClasses = async (staffId) => {
   // A class row means the whole class: the class teacher in Nursery / Primary, or the Form Master
   // in a "by subject" section. Either way they can enter marks for every subject of that class.
   const wholeClass = classRows.filter(c => c.classes)
-  const coveredClassIds = new Set(wholeClass.filter(c => !c.arm_id).map(c => c.class_id))
+  const covered = new Set(wholeClass.map(c => `${c.class_id}|${c.arm_id || ''}`))
 
   const byClass = {}
   ;(taughtRes.data || []).forEach(a => {
-    if (!a.classes || coveredClassIds.has(a.class_id)) return
-    if (!byClass[a.class_id]) {
-      byClass[a.class_id] = {
-        id: `taught-${a.class_id}`,
+    const groupKey = `${a.class_id}|${a.arm_id || ''}`
+    // Skip it when the whole class, or this very arm, is already handled as a whole class
+    if (!a.classes || covered.has(`${a.class_id}|`) || covered.has(groupKey)) return
+    if (!byClass[groupKey]) {
+      byClass[groupKey] = {
+        id: `taught-${a.class_id}-${a.arm_id || 'all'}`,
         staff_id: staffId,
         class_id: a.class_id,
-        arm_id: null,
+        arm_id: a.arm_id || null,
         classes: a.classes,
-        arms: null,
+        arms: a.arms || null,
         viaSubject: true,
         subjectIds: [],
       }
     }
-    byClass[a.class_id].subjectIds.push(a.subject_id)
+    byClass[groupKey].subjectIds.push(a.subject_id)
   })
 
   return { classRows, gradeClasses: [...wholeClass, ...Object.values(byClass)] }

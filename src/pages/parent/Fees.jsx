@@ -108,6 +108,29 @@ const ParentFees = () => {
         </div>
       </div>
 
+      {/* Fees still to pay */}
+      {bills.items.filter(i => i.owed > 0).length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-amber-100 mb-5 overflow-hidden">
+          <div className="px-6 py-3 bg-amber-50 border-b border-amber-100">
+            <h2 className="text-sm font-semibold text-amber-800">Fees still to pay</h2>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {bills.items.filter(i => i.owed > 0).map(i => (
+              <div key={`${i.fee.id}-${i.term.id}`} className="px-6 py-3 flex items-center justify-between gap-4 text-sm">
+                <div>
+                  <p className="font-medium text-gray-800">{i.fee.name}</p>
+                  <p className="text-xs text-gray-400">
+                    {i.term.name}
+                    {i.paid > 0 ? ` · paid ₦${Number(i.paid).toLocaleString()} of ₦${Number(i.charged).toLocaleString()}` : ''}
+                  </p>
+                </div>
+                <p className="font-semibold text-amber-600">₦{Number(i.owed).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Payments Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">

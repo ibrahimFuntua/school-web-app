@@ -71,8 +71,8 @@ const TeacherDashboard = () => {
 
           // A short "subjects I teach" summary for the dashboard
           setTeachingList(subjectClasses.map(c => ({
-            id: c.class_id,
-            name: c.classes.name,
+            id: c.id,
+            name: `${c.classes.name}${c.arms ? ' ' + c.arms.name : ''}`,
             subjects: (subjectData || []).filter(s => c.subjectIds.includes(s.id)).map(s => s.name),
           })))
         }    

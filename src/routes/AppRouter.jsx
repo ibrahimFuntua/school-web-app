@@ -27,6 +27,7 @@ import FeeStructure from '../pages/admin/fees/FeeStructure'
 import RecordPayment from '../pages/admin/fees/RecordPayment'
 import FeeReports from '../pages/admin/fees/FeeReports'
 import OutstandingFees from '../pages/admin/fees/OutstandingFees'
+import MarksTracker from '../pages/admin/grades/MarksTracker'
 import SessionManager from '../pages/admin/sessions/SessionManager'
 import SchoolSettings from '../pages/admin/settings/SchoolSettings'
 import TeacherSettings from '../pages/teacher/Settings'
@@ -43,6 +44,7 @@ import TeacherDashboard from '../pages/teacher/Dashboard'
 import AttendancePage from '../pages/teacher/AttendancePage'
 import AttendanceSummaryPage from '../pages/teacher/AttendanceSummaryPage'
 import GradesPage from '../pages/teacher/GradesPage'
+import MarksTrackerPage from '../pages/teacher/MarksTrackerPage'
 
 // Parent
 import ParentDashboard from '../pages/parent/Dashboard'
@@ -163,6 +165,11 @@ const AppRouter = () => {
             <OutstandingFees />
           </ProtectedRoute>
         } />
+        <Route path="/admin/marks-tracker" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <MarksTracker />
+          </ProtectedRoute>
+        } />
         <Route path="/admin/sessions" element={
           <ProtectedRoute allowedRoles={['Admin']}>
             <SessionManager />
@@ -209,11 +216,16 @@ const AppRouter = () => {
             <AttendanceSummaryPage />
           </ProtectedRoute>
         } />
-        <Route path="/teacher/grades" element={
+`        <Route path="/teacher/grades" element={
           <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <GradesPage />
           </ProtectedRoute>
         } />
+        <Route path="/teacher/marks-tracker" element={
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
+            <MarksTrackerPage />
+          </ProtectedRoute>
+        } />`
         <Route path="/teacher/report-cards" element={
           <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <ReportCardsPage />

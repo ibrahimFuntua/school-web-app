@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { callEdgeFunction, rolesForType, loginRoleFor } from '../../../lib/staffApi'
 import { useSections } from '../../../hooks/useSections'
 import TeachingAssignments from '../../../components/staff/TeachingAssignments'
+import SectionChecks from '../../../components/staff/SectionChecks'
 import { classModeOf } from '../../../lib/teacherAssignments'
 import {
   GENDERS,
@@ -27,6 +28,7 @@ const StaffForm = () => {
   const [selectedClasses, setSelectedClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [assignments, setAssignments] = useState([])
+  const [staffSectionIds, setStaffSectionIds] = useState([])
 
   const [form, setForm] = useState({
     first_name: '',
@@ -77,6 +79,12 @@ const StaffForm = () => {
     setForm(next)
   }
 
+  const toggleStaffSection = (sectionId) => {
+    setStaffSectionIds(prev =>
+      prev.includes(sectionId) ? prev.filter(id => id !== sectionId) : [...prev, sectionId]
+    )
+  }
+
   const handleAssignmentToggle = (classId, subjectId) => {
     const key = `${classId}|${subjectId}`
     setAssignments(prev =>
@@ -118,6 +126,11 @@ const StaffForm = () => {
       }
     }
 
+    if ((restricted || form.staff_type === 'Teaching') && staffSectionIds.length === 0) {
+      setError('Choose at least one section for this person.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -130,7 +143,7 @@ const StaffForm = () => {
           email: form.email.trim().toLowerCase(),
           date_of_birth: form.date_of_birth || null,
           date_of_employment: form.date_of_employment || null,
-          section_id: form.section_id || null,
+          section_id: staffSectionIds[0] || null,
           school_id: schoolId,
           staff_id: staffId,
         }])
@@ -144,6 +157,13 @@ const StaffForm = () => {
 
       // Anything that goes wrong from here on is listed, and the new profile opens so it can be fixed
       const problems = []
+
+      if (staffSectionIds.length > 0) {
+        const { error: sectionError } = await supabase
+          .from('staff_sections')
+          .insert(staffSectionIds.map(section_id => ({ staff_id: newStaff.id, section_id })))
+        if (sectionError) problems.push('the sections could not be saved')
+      }
 
       if (form.staff_type === 'Teaching' && selectedClasses.length > 0) {
         const classRows = selectedClasses.map(key => {
@@ -162,8 +182,9 @@ const StaffForm = () => {
 
       if (form.staff_type === 'Teaching' && assignments.length > 0) {
         const subjectRows = assignments.map(key => {
-          const [class_id, subject_id] = key.split('|')
-          return { staff_id: newStaff.id, class_id, subject_id }
+          const [classPart, subject_id] = key.split('|')
+          const [class_id, arm_id] = classPart.split('_')
+          return { staff_id: newStaff.id, class_id, arm_id: arm_id || null, subject_id }
         })
         const { error: subjectError } = await supabase.from('teaching_assignments').insert(subjectRows)
         if (subjectError) problems.push('the subjects could not be saved')
@@ -301,23 +322,12 @@ const StaffForm = () => {
                 {rolesForType(form.staff_type, undefined, !restricted).map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
-            <div>
-              <label className={labelClass}>
-                Section {(restricted || form.staff_type === 'Teaching') && <span className="text-red-500">*</span>}
-              </label>
-              <select
-                name="section_id"
-                value={form.section_id}
-                onChange={handleChange}
-                required={restricted || form.staff_type === 'Teaching'}
-                className={inputClass}
-              >
-                <option value="">
-                  {restricted || form.staff_type === 'Teaching' ? 'Select Section' : 'Whole school (Admin only)'}
-                </option>
-                {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
+            <SectionChecks
+              sections={sections}
+              selectedIds={staffSectionIds}
+              onToggle={toggleStaffSection}
+              required={restricted || form.staff_type === 'Teaching'}
+            />
             <div>
               <label className={labelClass}>Date of Employment</label>
               <input type="date" name="date_of_employment" value={form.date_of_employment} onChange={handleChange} className={inputClass} />

@@ -17,7 +17,8 @@ import {
   X,
   FileText,
   Users2,
-  Megaphone
+  Megaphone,
+  ClipboardList
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -143,6 +144,7 @@ const Sidebar = ({ isOpen, onClose, identity }) => {
     },
     { label: 'Parents', icon: Users2, path: '/admin/parents' },
     { label: 'Sessions & Terms', icon: GraduationCap, path: '/admin/sessions' },
+    { label: 'Marks Tracker', icon: ClipboardList, path: '/admin/marks-tracker' },
     { label: 'Announcements', icon: Bell, path: '/admin/announcements' },
     { label: 'School Settings', icon: Settings, path: '/admin/settings' },
   ]
@@ -150,6 +152,7 @@ const Sidebar = ({ isOpen, onClose, identity }) => {
   const headmasterNavItems = [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/headmaster/dashboard' },
     { label: 'Report Cards', icon: FileText, path: '/headmaster/report-cards' },
+    { label: 'Marks Tracker', icon: ClipboardList, path: '/admin/marks-tracker' },
     { label: 'Students', icon: Users, path: '/admin/students' },
     { label: 'Staff', icon: UserCog, path: '/admin/staff' },
     {

@@ -3,16 +3,21 @@ import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
 import { useSections } from '../../../hooks/useSections'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
 const PromoteStudents = () => {
   const { schoolId } = useAuthStore()
-  const { sectionNames, restricted } = useSections()
+  const { sectionNames, restricted, allSections } = useSections()
+  const { departmentSectionName, departmentMode, departments } = useDepartmentConfig()
   const [sessions, setSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [classGroups, setClassGroups] = useState([])
   const [classOrder, setClassOrder] = useState({})
   const [classNames, setClassNames] = useState({})
+  const [classSections, setClassSections] = useState({})
+  const [allArms, setAllArms] = useState([])
+  const [deptChoice, setDeptChoice] = useState({})
   const [overrides, setOverrides] = useState({})
   const [expanded, setExpanded] = useState({})
   const [loading, setLoading] = useState(false)
@@ -23,14 +28,15 @@ const PromoteStudents = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [sessionsRes, classOrderRes, classesRes] = await Promise.all([
+      const [sessionsRes, classOrderRes, classesRes, armsRes] = await Promise.all([
         supabase.from('sessions').select('*')
           .eq('school_id', schoolId)
           .order('created_at', { ascending: false }),
         supabase.from('class_order').select('*')
           .eq('school_id', schoolId),
-        supabase.from('classes').select('id, name')
+        supabase.from('classes').select('id, name, section')
           .eq('school_id', schoolId),
+        supabase.from('arms').select('id, class_id, name'),
       ])
 
       setSessions(sessionsRes.data || [])
@@ -42,8 +48,11 @@ const PromoteStudents = () => {
       setClassOrder(orderMap)
 
       const nameMap = {}
-      classesRes.data?.forEach(c => { nameMap[c.id] = c.name })
+      const sectionMap = {}
+      classesRes.data?.forEach(c => { nameMap[c.id] = c.name; sectionMap[c.id] = c.section })
       setClassNames(nameMap)
+      setClassSections(sectionMap)
+      setAllArms(armsRes.data || [])
     }
     if (schoolId) fetchData()
   }, [schoolId])
@@ -94,7 +103,21 @@ const PromoteStudents = () => {
     })
     setOverrides(overrideMap)
 
+    // Start each student's department choice from the one they already have
+    const deptMap = {}
+    students?.forEach(s => { deptMap[s.id] = s.department_id || '' })
+    setDeptChoice(deptMap)
+
     setLoading(false)
+  }
+
+  // Give a whole class the same department in one go
+  const bulkDepartment = (group, departmentId) => {
+    setDeptChoice(prev => {
+      const next = { ...prev }
+      group.students.forEach(s => { next[s.id] = departmentId })
+      return next
+    })
   }
 
   const handleOverride = (studentId, status) => {
@@ -123,15 +146,31 @@ const PromoteStudents = () => {
         const nextClassId = classOrder[studentClass.class_id]
         const isGraduating = !nextClassId && status === 'Promoted'
 
+        const movingUp = status === 'Promoted' && !!nextClassId
+        const currentSection = classSections[studentClass.class_id] || studentClass.classes?.section
+        // The student's section follows the class they move into
+        const newSection = movingUp ? (classSections[nextClassId] || currentSection) : currentSection
+
+        // Keep the same arm name in the next class when there is one (A stays A), otherwise no arm
+        const nextArm = movingUp
+          ? allArms.find(a => a.class_id === nextClassId && a.name === studentClass.arms?.name)
+          : null
+
+        // Department: chosen here if the next class is in the department section, cleared otherwise
+        let departmentId = studentClass.department_id || null
+        if (movingUp) {
+          departmentId = (departmentMode === 'by_student' && newSection === departmentSectionName)
+            ? (deptChoice[studentId] || null)
+            : null
+        }
+
         updates.push({
           id: studentId,
           status: isGraduating ? 'Graduated' : status,
-          class_id: status === 'Promoted' && nextClassId
-            ? nextClassId
-            : studentClass.class_id,
-          arm_id: status === 'Promoted' && nextClassId
-            ? null  // Reset arm when changing class
-            : studentClass.arm_id,
+          class_id: movingUp ? nextClassId : studentClass.class_id,
+          arm_id: movingUp ? (nextArm?.id || null) : studentClass.arm_id,
+          section: newSection,
+          department_id: departmentId,
         })
       })
 
@@ -144,6 +183,8 @@ const PromoteStudents = () => {
             status: update.status,
             class_id: update.class_id,
             arm_id: update.arm_id,
+            section: update.section,
+            department_id: update.department_id,
             updated_at: new Date(),
           })
           .eq('id', update.id)
@@ -168,6 +209,15 @@ const PromoteStudents = () => {
   const totalPromoted = Object.values(overrides).filter(s => s === 'Promoted').length
   const totalDemoted = Object.values(overrides).filter(s => s === 'Demoted').length
   const totalWithdrawn = Object.values(overrides).filter(s => s === 'Withdrawn').length
+
+  // Students about to enter the department section without a department chosen
+  const withoutDepartment = departmentMode === 'by_student'
+    ? classGroups.reduce((sum, g) => {
+        const nextClassId = classOrder[g.classId]
+        if (!nextClassId || classSections[nextClassId] !== departmentSectionName) return sum
+        return sum + g.students.filter(s => overrides[s.id] === 'Promoted' && !deptChoice[s.id]).length
+      }, 0)
+    : 0
 
   return (
     <AdminLayout>
@@ -198,7 +248,7 @@ const PromoteStudents = () => {
           <p className="text-xs text-amber-600 mt-0.5">
             This action promotes all active students to their next class.
             Make sure all report cards are published before promoting.
-            This should only be done at the end of the 3rd term.
+            This should only be done at the end of the 3rd term. A student who moves into a class of another section also changes section, and so who manages them. Students keep the same arm name in the next class (A stays A) when it exists.
           </p>
         </div>
       </div>
@@ -258,6 +308,10 @@ const PromoteStudents = () => {
               const nextClassName = nextClassId
                 ? classNames[nextClassId]
                 : 'Graduating (No next class)'
+              const nextSection = nextClassId ? classSections[nextClassId] : null
+              const sectionChanges = !!nextSection && nextSection !== group.class?.section
+              const nextManager = allSections.find(s => s.name === nextSection)?.managed_by
+              const needsDepartment = !!nextSection && nextSection === departmentSectionName && departmentMode === 'by_student'
 
               return (
                 <div
@@ -282,6 +336,11 @@ const PromoteStudents = () => {
                       <span className="text-xs text-gray-400">
                         → {nextClassName}
                       </span>
+                      {sectionChanges && (
+                        <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
+                          Moves to {nextSection}{nextManager ? ` · managed by ${nextManager}` : ''}
+                        </span>
+                      )}
                       {!nextClassId && (
                         <span className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">
                           Final Class
@@ -297,12 +356,28 @@ const PromoteStudents = () => {
                   {/* Students List */}
                   {expanded[group.classId] && (
                     <div className="border-t border-gray-100">
+                      {needsDepartment && (
+                        <div className="px-6 py-3 bg-blue-50/40 flex items-center gap-3 text-sm">
+                          <span className="text-gray-600">Set the department for the whole class:</span>
+                          <select
+                            defaultValue=""
+                            onChange={(e) => bulkDepartment(group, e.target.value)}
+                            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                          >
+                            <option value="">Choose...</option>
+                            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </div>
+                      )}
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-gray-50">
                             <th className="text-left px-6 py-2 text-xs font-semibold text-gray-500">#</th>
                             <th className="text-left px-6 py-2 text-xs font-semibold text-gray-500">Student</th>
                             <th className="text-left px-6 py-2 text-xs font-semibold text-gray-500">Admission No.</th>
+                            {needsDepartment && (
+                              <th className="text-left px-6 py-2 text-xs font-semibold text-gray-500">Department</th>
+                            )}
                             <th className="text-left px-6 py-2 text-xs font-semibold text-gray-500">Action</th>
                           </tr>
                         </thead>
@@ -316,6 +391,18 @@ const PromoteStudents = () => {
                               <td className="px-6 py-2 text-gray-500 text-xs">
                                 {student.admission_number}
                               </td>
+                              {needsDepartment && (
+                                <td className="px-6 py-2">
+                                  <select
+                                    value={deptChoice[student.id] || ''}
+                                    onChange={(e) => setDeptChoice(prev => ({ ...prev, [student.id]: e.target.value }))}
+                                    className="px-2 py-1 border border-gray-300 rounded-lg text-xs"
+                                  >
+                                    <option value="">No department yet</option>
+                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                  </select>
+                                </td>
+                              )}
                               <td className="px-6 py-2">
                                 <div className="flex gap-2">
                                   {['Promoted', 'Demoted', 'Withdrawn'].map(status => (
@@ -347,6 +434,13 @@ const PromoteStudents = () => {
               )
             })}
           </div>
+
+          {withoutDepartment > 0 && !promoted && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+              {withoutDepartment} student{withoutDepartment === 1 ? '' : 's'} moving into {departmentSectionName} have
+              no department chosen. They will only get the core subjects until you set it on their profile.
+            </div>
+          )}
 
           {/* Promote Button */}
           {!promoted ? (

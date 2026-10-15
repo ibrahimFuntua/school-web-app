@@ -22,6 +22,7 @@ const navItems = [
   { label: 'Mark Attendance', icon: ClipboardList, path: '/teacher/attendance' },
   { label: 'Attendance Summary', icon: BarChart2, path: '/teacher/attendance/summary' },
   { label: 'Enter Grades', icon: BookOpen, path: '/teacher/grades' },
+  { label: 'Marks Tracker', icon: ClipboardList, path: '/teacher/marks-tracker' },
   { label: 'Report Cards', icon: FileText, path: '/teacher/report-cards' },
   { label: 'Announcements', icon: Megaphone, path: '/teacher/announcements' },
   { label: 'Settings', icon: Settings, path: '/teacher/settings' },
@@ -103,7 +104,7 @@ const TeacherLayout = ({ children }) => {
           {(role === 'Headmaster'
             ? [...navItems, { label: 'Back to Management', icon: LayoutDashboard, path: '/headmaster/dashboard' }]
             : navItems
-          ).map(item => (
+          ).map(item => (  { label: 'Enter Grades', icon: BookOpen, path: '/teacher/grades' },
             <NavLink
               key={item.path}
               to={item.path}

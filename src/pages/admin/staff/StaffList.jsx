@@ -18,20 +18,22 @@ const StaffList = () => {
 
   const fetchStaff = async () => {
     setLoading(true)
-    let query = supabase
+    const { data } = await supabase
       .from('staff')
-      .select('*')
+      .select('*, staff_sections(section_id)')
       .eq('school_id', schoolId)
       .order('first_name')
-    // A Head Teacher / Principal only sees staff of the sections they manage
-    if (restricted) {
-      query = query
-        .in('section_id', sectionIds.length > 0 ? sectionIds : ['00000000-0000-0000-0000-000000000000'])
-        .not('role', 'in', '("Head Teacher","Principal")')
-    }
-    const { data } = await query
 
-    setStaff(data || [])
+    // A Head Teacher / Principal only sees staff who work in a section they manage,
+    // and never another Head Teacher or Principal
+    const visible = restricted
+      ? (data || []).filter(s =>
+          !['Head Teacher', 'Principal'].includes(s.role) &&
+          (s.staff_sections || []).some(x => sectionIds.includes(x.section_id))
+        )
+      : (data || [])
+
+    setStaff(visible)
     setLoading(false)
   }
 
