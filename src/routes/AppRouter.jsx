@@ -28,6 +28,7 @@ import RecordPayment from '../pages/admin/fees/RecordPayment'
 import FeeReports from '../pages/admin/fees/FeeReports'
 import OutstandingFees from '../pages/admin/fees/OutstandingFees'
 import MarksTracker from '../pages/admin/grades/MarksTracker'
+import FeeSummary from '../pages/admin/fees/FeeSummary'
 import SessionManager from '../pages/admin/sessions/SessionManager'
 import SchoolSettings from '../pages/admin/settings/SchoolSettings'
 import TeacherSettings from '../pages/teacher/Settings'
@@ -163,6 +164,11 @@ const AppRouter = () => {
         <Route path="/admin/fees/outstanding" element={
           <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
             <OutstandingFees />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/fees/summary" element={
+          <ProtectedRoute allowedRoles={['Admin']}>
+            <FeeSummary />
           </ProtectedRoute>
         } />
         <Route path="/admin/marks-tracker" element={

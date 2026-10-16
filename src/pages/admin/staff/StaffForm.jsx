@@ -13,7 +13,7 @@ import {
   EMPLOYMENT_STATUSES,
 } from '../../../lib/constants'
 
-const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
+
 
 const StaffForm = () => {
   const { schoolId } = useAuthStore()

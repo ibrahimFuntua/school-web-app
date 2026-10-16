@@ -28,7 +28,7 @@ export const loginRoleFor = (role, staffType) => {
 
 // A role has to fit the staff type: a Teaching person cannot be a Cleaner.src/hooks/useSections.js
 const TEACHING_ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Principal', 'Other']
-const NON_TEACHING_ROLES = ['Head Teacher', 'Principal', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
+const NON_TEACHING_ROLES = ['Head Teacher', 'Principal', 'Secretary', 'Security', 'Cleaner', 'Other']
 
 export const rolesForType = (type, keep, canPickLeaders = true) => {
   let list = type === 'Teaching' ? TEACHING_ROLES : type === 'Non-Teaching' ? NON_TEACHING_ROLES : []

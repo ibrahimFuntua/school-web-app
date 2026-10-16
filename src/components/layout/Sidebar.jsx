@@ -140,6 +140,7 @@ const Sidebar = ({ isOpen, onClose, identity }) => {
         { label: 'Record Payment', path: '/admin/fees/payment' },
         { label: 'Fee Reports', path: '/admin/fees/reports' },
         { label: 'Outstanding Fees', path: '/admin/fees/outstanding' },
+        { label: 'Fee Summary', path: '/admin/fees/summary' },
       ],
     },
     { label: 'Parents', icon: Users2, path: '/admin/parents' },

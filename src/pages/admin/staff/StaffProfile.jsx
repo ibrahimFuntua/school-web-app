@@ -10,7 +10,7 @@ import TeachingAssignments from '../../../components/staff/TeachingAssignments'
 import SectionChecks from '../../../components/staff/SectionChecks'
 import { classModeOf } from '../../../lib/teacherAssignments'
 
-const ROLES = ['Class Teacher', 'Subject Teacher', 'Head Teacher', 'Accountant', 'Secretary', 'Security', 'Cleaner', 'Other']
+
 
 const StaffProfile = () => {
   const { id } = useParams()

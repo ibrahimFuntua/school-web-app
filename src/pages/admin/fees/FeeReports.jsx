@@ -135,7 +135,7 @@ const ReceiptModal = ({ payment, onClose, schoolName, schoolLogo }) => {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Received By</span>
                   <span className="font-medium text-gray-800">
-                    {payment.staff?.first_name} {payment.staff?.last_name}
+                    {payment.staff ? `${payment.staff.first_name} ${payment.staff.last_name}` : 'Admin'}
                   </span>
                 </div>
                 <div className="border-t border-dashed border-gray-100 my-2" />

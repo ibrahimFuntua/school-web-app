@@ -52,11 +52,13 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       const term = termRes.data
       const schoolData = schoolRes.data
 
+      let usesDepartments = false
       // Departments: hide subjects that are not part of this student's department
       if (schoolData?.department_section_id && schoolData?.department_mode && grades.length > 0) {
         const { data: deptSection } = await supabase
           .from('school_sections').select('name').eq('id', schoolData.department_section_id).single()
         if (deptSection?.name && deptSection.name === student.classes?.section) {
+          usesDepartments = true
           const studentDepartmentId = schoolData.department_mode === 'by_arm'
             ? student.arms?.department_id
             : student.department_id
@@ -85,20 +87,46 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       else qualityQuery.is('arm_id', null)
       const { data: qualityData } = await qualityQuery.single()
 
-      // Get classmates for position calculation
-      const { data: classmateIds } = await supabase
+      // Get classmates for position calculation.
+      // Departments grouped "by arm": Science, Arts and Commerce each rank on their own, so only the
+      // students of the same arm are compared. Everywhere else the whole class is compared.
+      const rankByArm = usesDepartments && schoolData.department_mode === 'by_arm' && !!student.arm_id
+      let classmateQuery = supabase
         .from('students')
-        .select('id')
+        .select('id, arm_id, department_id')
         .eq('class_id', student.class_id)
         .eq('status', 'Active')
+      if (rankByArm) classmateQuery = classmateQuery.eq('arm_id', student.arm_id)
+      const { data: classmateRows } = await classmateQuery
 
-      const allStudentIds = classmateIds?.map(s => s.id) || []
+      const allStudentIds = classmateRows?.map(s => s.id) || []
 
-      const { data: allGrades } = await supabase
+      const { data: rawGrades } = await supabase
         .from('grades')
         .select('student_id, total, subject_id')
         .eq('term_id', termId)
         .in('student_id', allStudentIds)
+
+      // Count only the subjects each classmate really takes, so a subject outside someone's
+      // department never changes anyone's total or position
+      let allGrades = rawGrades
+      if (usesDepartments && rawGrades?.length > 0) {
+        const { data: armRows } = await supabase
+          .from('arms').select('id, department_id').eq('class_id', student.class_id)
+        const armDepartment = {}
+        armRows?.forEach(a => { armDepartment[a.id] = a.department_id })
+        const departmentByStudent = {}
+        classmateRows?.forEach(s => {
+          departmentByStudent[s.id] = schoolData.department_mode === 'by_arm'
+            ? armDepartment[s.arm_id]
+            : s.department_id
+        })
+        const uniqueSubjects = [...new Set(rawGrades.map(g => g.subject_id))].map(id => ({ id }))
+        const linkedSubjects = await attachDepartmentLinks(uniqueSubjects)
+        allGrades = rawGrades.filter(g =>
+          subjectFitsDepartment(linkedSubjects.find(s => s.id === g.subject_id), departmentByStudent[g.student_id])
+        )
+      }
 
       // Overall position
       const studentTotals = {}
