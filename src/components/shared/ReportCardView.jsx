@@ -5,19 +5,27 @@ import { X } from 'lucide-react'
 import { getSectionReportSettings } from '../../lib/reportSettings'
 import { attachDepartmentLinks, subjectFitsDepartment } from '../../lib/departmentUtils'
 
-const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
+const ReportCardView = ({ studentId, studentIds, batchTitle, termId, sessionId, onClose }) => {
   const { schoolId } = useAuthStore()
   const [data, setData] = useState(null)
   const [school, setSchool] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [batchSheets, setBatchSheets] = useState([])
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
+  const [batchError, setBatchError] = useState('')
 
   useEffect(() => {
     if (studentId && termId) fetchReportCard()
   }, [studentId, termId])
 
-  const fetchReportCard = async () => {
-    setLoading(true)
-    try {
+  useEffect(() => {
+    if (studentIds && studentIds.length > 0 && termId) runBatch()
+  }, [studentIds, termId])
+
+  // Works out everything on one student's report sheet.
+  // Used for a single card and, student by student, for a whole class.
+  const loadReportData = async (studentId) => {
+    {
       const [
         studentRes, gradesRes, attendanceRes,
         reportCardRes, schoolRes, termRes,
@@ -141,6 +149,8 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       // Subject positions
       const subjectPositions = {}
       const subjectAverages = {}
+      const subjectHighest = {}
+      const subjectLowest = {}
       grades.forEach(grade => {
         const subjectGrades = allGrades?.filter(g => g.subject_id === grade.subject_id) || []
         const mySubjectScore = Number(grade.total || 0)
@@ -151,6 +161,11 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
         const sum = subjectGrades.reduce((s, g) => s + Number(g.total || 0), 0)
         subjectAverages[grade.subject_id] = subjectGrades.length > 0
           ? (sum / subjectGrades.length).toFixed(1) : 0
+
+        // Highest and lowest mark in the class (a zero counts as "not entered")
+        const entered = subjectGrades.map(g => Number(g.total || 0)).filter(t => t > 0)
+        subjectHighest[grade.subject_id] = entered.length > 0 ? Math.max(...entered) : 0
+        subjectLowest[grade.subject_id] = entered.length > 0 ? Math.min(...entered) : 0
       })
 
       // Attendance
@@ -180,24 +195,84 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       const useGrade = sectionSettings.use_grade
       const showSubjectPosition = sectionSettings.show_subject_position
 
-      setData({
-        student, grades, attendance: { totalPresent, totalDays, attendancePct },
-        reportCard, totalObtainable, totalObtained,
-        average: Number(average), overallGrade,
-        overallPosition, totalStudents,
-        subjectPositions, subjectAverages,
-        qualityData, term, scoreConfig,
-        gradeScale, traits: traits || [],
-        usePosition, useGrade, showSubjectPosition,
-        showAffective: reportSettings.show_affective !== false,
-        showPsychomotor: reportSettings.show_psychomotor !== false,
-      })
-      setSchool(schoolData)
+      return {
+        schoolData,
+        data: {
+          student, grades, attendance: { totalPresent, totalDays, attendancePct },
+          reportCard, totalObtainable, totalObtained,
+          average: Number(average), overallGrade,
+          overallPosition, totalStudents,
+          subjectPositions, subjectAverages, subjectHighest, subjectLowest,
+          qualityData, term, scoreConfig,
+          gradeScale, traits: traits || [],
+          usePosition, useGrade, showSubjectPosition,
+          showAffective: reportSettings.show_affective !== false,
+          showPsychomotor: reportSettings.show_psychomotor !== false,
+        },
+      }
+    }
+  }
+
+  const fetchReportCard = async () => {
+    setLoading(true)
+    try {
+      const result = await loadReportData(studentId)
+      setData(result.data)
+      setSchool(result.schoolData)
     } catch (err) {
       console.error('Error:', err)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Prepares the sheets of a whole class, a few at a time
+  const runBatch = async () => {
+    setBatchSheets([])
+    setBatchError('')
+    setBatchProgress({ done: 0, total: studentIds.length })
+    const sheets = []
+    try {
+      for (let i = 0; i < studentIds.length; i += 4) {
+        const chunk = studentIds.slice(i, i + 4)
+        const results = await Promise.all(chunk.map(id => loadReportData(id)))
+        results.forEach(r => sheets.push(r))
+        setBatchProgress({ done: sheets.length, total: studentIds.length })
+      }
+      setBatchSheets(sheets)
+    } catch (err) {
+      setBatchError(err.message || 'Could not prepare the report cards.')
+    }
+  }
+
+  // One document with every sheet on its own page
+  const handlePrintBatch = () => {
+    const sheetsHtml = batchSheets.map(r => {
+      const html = renderSheet(r.data, r.schoolData)
+      return `<div class="sheet">${html.split('<body>')[1].split('</body>')[0]}</div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+      <html>
+      <head>
+        <title>Report Cards</title>
+        <style>
+          * { margin:0; padding:0; box-sizing:border-box; }
+          body { font-family:Arial,sans-serif; font-size:10.5px; color:#111; }
+          .sheet { padding:10px; page-break-after:always; }
+          .sheet:last-child { page-break-after:auto; }
+          table { border-collapse:collapse; }
+          @page { size:A4; margin:10mm; }
+        </style>
+      </head>
+      <body>${sheetsHtml}</body>
+      </html>`
+
+    const printWindow = window.open('', '_blank', 'width=850,height=1100')
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => { printWindow.print() }, 800)
   }
 
   const ordinal = (n) => {
@@ -211,18 +286,24 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
     return found?.grade || '—'
   }
 
-  const buildPrintHTML = () => {
-    if (!data || !school) return ''
+  const buildPrintHTML = (override) => {
+    const useData = override ? override.data : data
+    const useSchool = override ? override.school : school
+    if (!useData || !useSchool) return ''
+    return renderSheet(useData, useSchool)
+  }
 
+  // The report sheet itself, for one student's data
+  const renderSheet = (reportData, school) => {
     const {
       student, grades, attendance, reportCard,
       totalObtainable, totalObtained, average,
       overallGrade, overallPosition, totalStudents,
-      subjectPositions, subjectAverages,
+      subjectPositions, subjectAverages, subjectHighest, subjectLowest,
       qualityData, term, scoreConfig, gradeScale,
       traits, usePosition, useGrade, showSubjectPosition,
       showAffective, showPsychomotor,
-    } = data
+    } = reportData
 
     const section = student.classes?.section
     const affectiveTraits = traits.filter(t => t.category === 'affective')
@@ -248,6 +329,8 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
           <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-size:9px">${grade.exam_score ?? 0}</td>
           <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-weight:700;color:#1E3A8A;font-size:9px">${grade.total ?? 0}</td>
           <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-size:9px">${subjectAverages[grade.subject_id] ?? 0}</td>
+          <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-size:9px">${subjectHighest[grade.subject_id] ?? 0}</td>
+          <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-size:9px">${subjectLowest[grade.subject_id] ?? 0}</td>
           ${subjectPos}
           ${gradeCell}
           <td style="padding:2px 4px;text-align:center;border:1px solid #d1d5db;font-size:8px">${grade.remark ?? '—'}</td>
@@ -425,6 +508,8 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
               <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">EXAM<br>${scoreConfig.max_exam}</th>
               <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">TOTAL<br>SCORE<br>100</th>
               <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">CLASS<br>AVERAGE</th>
+              <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">HIGHEST<br>IN CLASS</th>
+              <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">LOWEST<br>IN CLASS</th>
               ${subjectPosHeader}
               ${gradeHeader}
               <th style="padding:3px 4px;border:1px solid #6b7280;font-size:8px;text-align:center">REMARKS</th>
@@ -503,6 +588,18 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
           </tr>
         </table>
 
+        <!-- PARENT SIGNATURE & SCHOOL STAMP -->
+        <table style="width:100%;border-collapse:collapse;margin-top:6px">
+          <tr>
+            <td style="width:60%;padding:6px;border:1px solid #d1d5db;font-size:9px;vertical-align:bottom;height:70px">
+              <b>Parent/Guardian's Signature:</b> ________________________ &nbsp;&nbsp; <b>Date:</b> ______________
+            </td>
+            <td style="width:40%;padding:6px;border:1px solid #d1d5db;font-size:8px;text-align:center;vertical-align:bottom;height:70px;color:#6b7280">
+              School Stamp
+            </td>
+          </tr>
+        </table>
+
       </body>
       </html>
     `
@@ -518,6 +615,46 @@ const ReportCardView = ({ studentId, termId, sessionId, onClose }) => {
       printWindow.print()
     }, 500)
   }
+
+  if (studentIds) return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-8 w-full max-w-md text-center">
+        <h2 className="text-lg font-bold text-primary mb-1">Print report cards</h2>
+        <p className="text-sm text-gray-500 mb-5">{batchTitle}</p>
+        {batchError ? (
+          <p className="text-sm text-red-600 mb-4">{batchError}</p>
+        ) : batchSheets.length === 0 ? (
+          <>
+            <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
+              <div
+                className="bg-primary h-2 rounded-full transition-all"
+                style={{ width: `${batchProgress.total ? (batchProgress.done / batchProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400">
+              Preparing {batchProgress.done} of {batchProgress.total}...
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-green-600 mb-4">
+              {batchSheets.length} report card{batchSheets.length === 1 ? '' : 's'} ready.
+            </p>
+            <button
+              onClick={handlePrintBatch}
+              className="bg-primary hover:bg-primary-light text-white font-semibold px-6 py-2.5 rounded-lg transition"
+            >
+              Print all (one per page)
+            </button>
+            <p className="text-xs text-gray-400 mt-3">
+              In the print window, choose "Save as PDF" to keep them as one file.
+            </p>
+          </>
+        )}
+        <button onClick={onClose} className="mt-5 text-sm text-gray-500 underline">Close</button>
+      </div>
+    </div>
+  )
 
   if (loading) return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">

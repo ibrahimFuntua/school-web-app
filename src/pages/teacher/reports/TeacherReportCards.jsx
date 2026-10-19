@@ -4,6 +4,8 @@ import { useAuthStore } from '../../../store/authStore'
 import { useTermStore } from '../../../store/termStore'
 import { Save, Eye } from 'lucide-react'
 import ReportCardView from '../../../components/shared/ReportCardView'
+import { useDepartmentConfig } from '../../../hooks/useDepartmentConfig'
+import { gradesInDepartment, summariseGrades } from '../../../lib/reportUtils'
 
 // ============================================================
 // SOCIAL QUALITIES FORM COMPONENT
@@ -188,6 +190,7 @@ const TeacherReportCards = () => {
   const [selectedClass, setSelectedClass] = useState(null)
   const [students, setStudents] = useState([])
   const [studentAverages, setStudentAverages] = useState({})
+  const { departmentSectionName, departmentMode } = useDepartmentConfig()
   const [ranges, setRanges] = useState(DEFAULT_RANGES)
   const [saving, setSaving] = useState(false)
   const [savingRanges, setSavingRanges] = useState(false)
@@ -218,13 +221,13 @@ const TeacherReportCards = () => {
       fetchStudentsAndAverages()
       fetchExistingRanges()
     }
-  }, [selectedClass, currentTerm])
+  }, [selectedClass, currentTerm, departmentSectionName, departmentMode])
 
   const fetchStudentsAndAverages = async () => {
     setLoading(true)
     const query = supabase
       .from('students')
-      .select('id, first_name, middle_name, last_name, admission_number')
+      .select('id, first_name, middle_name, last_name, admission_number, arm_id, department_id')
       .eq('class_id', selectedClass.classes.id)
       .eq('status', 'Active')
       .order('first_name')
@@ -236,19 +239,20 @@ const TeacherReportCards = () => {
     // Fetch grades for each student to calculate averages
     const { data: gradesData } = await supabase
       .from('grades')
-      .select('student_id, total')
+      .select('student_id, total, subject_id')
       .in('student_id', studentData?.map(s => s.id) || [])
       .eq('term_id', currentTerm.id)
 
-    // Calculate average per student
-    const averageMap = {}
-    studentData?.forEach(student => {
-      const studentGrades = gradesData?.filter(g => g.student_id === student.id) || []
-      const total = studentGrades.reduce((sum, g) => sum + Number(g.total || 0), 0)
-      const avg = studentGrades.length > 0 ? (total / studentGrades.length).toFixed(1) : 0
-      averageMap[student.id] = Number(avg)
+    // Only count the subjects each student really takes (their department)
+    const usedGrades = await gradesInDepartment({
+      students: studentData || [],
+      grades: gradesData || [],
+      classId: selectedClass.classes.id,
+      usesDepartments: !!departmentSectionName && selectedClass.classes.section === departmentSectionName,
+      departmentMode,
     })
-    setStudentAverages(averageMap)
+    const { averages } = summariseGrades(studentData || [], usedGrades)
+    setStudentAverages(averages)
     setLoading(false)
   }
 
@@ -329,26 +333,54 @@ const TeacherReportCards = () => {
     setSaving(true)
     setError('')
     try {
-      const records = students.map(student => {
-        const avg = studentAverages[student.id] || 0
-        const teacherRemark = getRemarkForAverage(avg)
-        return {
+      // Cards that already exist keep their publish status and the head's promotion decision:
+      // only the class teacher's comment is refreshed
+      const { data: existing } = await supabase
+        .from('report_cards')
+        .select('student_id, is_published')
+        .eq('term_id', currentTerm.id)
+        .in('student_id', students.map(s => s.id))
+      const existingIds = new Set((existing || []).map(r => r.student_id))
+      const publishedAlready = (existing || []).filter(r => r.is_published).length
+
+      if (publishedAlready > 0 && !window.confirm(
+        `${publishedAlready} report card${publishedAlready === 1 ? ' is' : 's are'} already published. ` +
+        "Updating only refreshes the class teacher's comment, and they stay published. Continue?"
+      )) return
+
+      // New cards
+      const newRecords = students
+        .filter(s => !existingIds.has(s.id))
+        .map(student => ({
           student_id: student.id,
           session_id: currentSession.id,
           term_id: currentTerm.id,
           class_id: selectedClass.classes.id,
           arm_id: selectedClass.arm_id || null,
-          teacher_remark: teacherRemark,
+          teacher_remark: getRemarkForAverage(studentAverages[student.id] || 0),
           promotion_status: 'Promoted',
           is_published: false,
-        }
+        }))
+      if (newRecords.length > 0) {
+        const { error: insertError } = await supabase.from('report_cards').insert(newRecords)
+        if (insertError) throw insertError
+      }
+
+      // Existing cards: refresh the comment only (grouped, so a class takes a few calls)
+      const byRemark = {}
+      students.filter(s => existingIds.has(s.id)).forEach(s => {
+        const remark = getRemarkForAverage(studentAverages[s.id] || 0)
+        byRemark[remark] = [...(byRemark[remark] || []), s.id]
       })
+      for (const [remark, ids] of Object.entries(byRemark)) {
+        const { error: updateError } = await supabase
+          .from('report_cards')
+          .update({ teacher_remark: remark })
+          .in('student_id', ids)
+          .eq('term_id', currentTerm.id)
+        if (updateError) throw updateError
+      }
 
-      const { error } = await supabase
-        .from('report_cards')
-        .upsert(records, { onConflict: 'student_id,term_id' })
-
-      if (error) throw error
       setSuccess('Report cards generated successfully!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {

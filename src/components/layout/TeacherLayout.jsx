@@ -24,6 +24,7 @@ const navItems = [
   { label: 'Enter Grades', icon: BookOpen, path: '/teacher/grades' },
   { label: 'Marks Tracker', icon: ClipboardList, path: '/teacher/marks-tracker' },
   { label: 'Report Cards', icon: FileText, path: '/teacher/report-cards' },
+  { label: 'Print Report Cards', icon: FileText, path: '/teacher/print-report-cards' },
   { label: 'Announcements', icon: Megaphone, path: '/teacher/announcements' },
   { label: 'Settings', icon: Settings, path: '/teacher/settings' },
 ]

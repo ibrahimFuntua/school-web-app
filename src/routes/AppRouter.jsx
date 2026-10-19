@@ -29,6 +29,7 @@ import FeeReports from '../pages/admin/fees/FeeReports'
 import OutstandingFees from '../pages/admin/fees/OutstandingFees'
 import MarksTracker from '../pages/admin/grades/MarksTracker'
 import FeeSummary from '../pages/admin/fees/FeeSummary'
+import PrintReportCards from '../pages/admin/reports/PrintReportCards'
 import SessionManager from '../pages/admin/sessions/SessionManager'
 import SchoolSettings from '../pages/admin/settings/SchoolSettings'
 import TeacherSettings from '../pages/teacher/Settings'
@@ -46,6 +47,7 @@ import AttendancePage from '../pages/teacher/AttendancePage'
 import AttendanceSummaryPage from '../pages/teacher/AttendanceSummaryPage'
 import GradesPage from '../pages/teacher/GradesPage'
 import MarksTrackerPage from '../pages/teacher/MarksTrackerPage'
+import PrintReportCardsPage from '../pages/teacher/PrintReportCardsPage'
 
 // Parent
 import ParentDashboard from '../pages/parent/Dashboard'
@@ -171,6 +173,11 @@ const AppRouter = () => {
             <FeeSummary />
           </ProtectedRoute>
         } />
+        <Route path="/admin/print-report-cards" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <PrintReportCards />
+          </ProtectedRoute>
+        } />
         <Route path="/admin/marks-tracker" element={
           <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
             <MarksTracker />
@@ -225,6 +232,11 @@ const AppRouter = () => {
 `        <Route path="/teacher/grades" element={
           <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
             <GradesPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/teacher/print-report-cards" element={
+          <ProtectedRoute allowedRoles={['Teacher', 'Headmaster']}>
+            <PrintReportCardsPage />
           </ProtectedRoute>
         } />
         <Route path="/teacher/marks-tracker" element={

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useTermStore } from '../../store/termStore'
-import { Save, Eye, CheckCircle } from 'lucide-react'
+import { Save, Eye, CheckCircle, Printer } from 'lucide-react'
 import ReportCardView from '../../components/shared/ReportCardView'
 import AdminLayout from '../../components/layout/AdminLayout'
 import { useSections } from '../../hooks/useSections'
+import { useDepartmentConfig } from '../../hooks/useDepartmentConfig'
+import { gradesInDepartment, summariseGrades } from '../../lib/reportUtils'
 
 const DEFAULT_HEAD_RANGES = [
   { min: 70, max: 100, remark: 'Excellent result. Promoted with Distinction.' },
@@ -34,6 +36,10 @@ const HeadReportCards = ({ layout: Layout }) => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { sectionNames, restricted, loading: sectionsLoading } = useSections()
+  const { departmentSectionName, departmentMode } = useDepartmentConfig()
+  const [markCounts, setMarkCounts] = useState({})
+  const [hasRatings, setHasRatings] = useState(true)
+  const [printIds, setPrintIds] = useState(null)
 
   useEffect(() => {
     const fetchClasses = async () => {
@@ -57,13 +63,13 @@ const HeadReportCards = ({ layout: Layout }) => {
       fetchStudentsData()
       fetchHeadRanges()
     }
-  }, [selectedClass, currentTerm])
+  }, [selectedClass, currentTerm, departmentSectionName, departmentMode])
 
   const fetchStudentsData = async () => {
     setLoading(true)
     const { data: studentData } = await supabase
       .from('students')
-      .select('id, first_name, middle_name, last_name, admission_number, class_id, arm_id')
+      .select('id, first_name, middle_name, last_name, admission_number, class_id, arm_id, department_id')
       .eq('class_id', selectedClass.id)
       .eq('status', 'Active')
       .order('first_name')
@@ -73,18 +79,29 @@ const HeadReportCards = ({ layout: Layout }) => {
     // Grades & averages
     const { data: gradesData } = await supabase
       .from('grades')
-      .select('student_id, total')
+      .select('student_id, total, subject_id')
       .in('student_id', studentData?.map(s => s.id) || [])
       .eq('term_id', currentTerm.id)
 
-    const averageMap = {}
-    studentData?.forEach(student => {
-      const studentGrades = gradesData?.filter(g => g.student_id === student.id) || []
-      const total = studentGrades.reduce((sum, g) => sum + Number(g.total || 0), 0)
-      const avg = studentGrades.length > 0 ? (total / studentGrades.length).toFixed(1) : 0
-      averageMap[student.id] = Number(avg)
+    // Only count the subjects each student really takes (their department)
+    const usedGrades = await gradesInDepartment({
+      students: studentData || [],
+      grades: gradesData || [],
+      classId: selectedClass.id,
+      usesDepartments: !!departmentSectionName && selectedClass.section === departmentSectionName,
+      departmentMode,
     })
-    setStudentAverages(averageMap)
+    const { averages, markCounts: counts } = summariseGrades(studentData || [], usedGrades)
+    setStudentAverages(averages)
+    setMarkCounts(counts)
+
+    // Have the class ratings (affective / psychomotor) been entered?
+    const { count: ratingCount } = await supabase
+      .from('social_qualities')
+      .select('id', { count: 'exact', head: true })
+      .eq('class_id', selectedClass.id)
+      .eq('term_id', currentTerm.id)
+    setHasRatings((ratingCount || 0) > 0)
 
     // Existing report cards
     const { data: rcData } = await supabase
@@ -181,6 +198,9 @@ const HeadReportCards = ({ layout: Layout }) => {
   }
 
   const handlePublishAll = async () => {
+  if (issues.length > 0 && !window.confirm(
+    `Before you publish:\n\n- ${issues.join('\n- ')}\n\nPublish anyway?`
+  )) return
   setPublishing(true)
   setError('')
   try {
@@ -229,6 +249,88 @@ const HeadReportCards = ({ layout: Layout }) => {
 }
 
   const publishedCount = Object.values(reportCards).filter(rc => rc.is_published).length
+
+  // What is missing before this class goes out to parents
+  const noMarks = students.filter(s => !(markCounts[s.id] > 0))
+  const noTeacherCard = students.filter(s => !reportCards[s.id]?.teacher_remark)
+  const issues = []
+  if (noMarks.length > 0) {
+    issues.push(`${noMarks.length} student${noMarks.length === 1 ? ' has' : 's have'} no marks yet`)
+  }
+  if (noTeacherCard.length > 0) {
+    issues.push(`${noTeacherCard.length} student${noTeacherCard.length === 1 ? ' has' : 's have'} no class teacher comment yet (the Form Master has not generated the cards)`)
+  }
+  if (!hasRatings) {
+    issues.push('No affective / psychomotor ratings have been entered for this class')
+  }
+
+  // Publish only some students (or just one)
+  const publishStudents = async (list) => {
+    setPublishing(true)
+    setError('')
+    try {
+      const { data: classOrderData } = await supabase
+        .from('class_order')
+        .select('next_class_id')
+        .eq('class_id', selectedClass.id)
+        .eq('school_id', schoolId)
+        .single()
+      const nextClassId = classOrderData?.next_class_id || null
+
+      const records = list.map(student => ({
+        student_id: student.id,
+        session_id: currentSession.id,
+        term_id: currentTerm.id,
+        class_id: selectedClass.id,
+        arm_id: student.arm_id || null,
+        head_remark: getHeadRemark(studentAverages[student.id] || 0),
+        promotion_status: overrides[student.id]?.promotion_status || 'Promoted',
+        next_class_id: nextClassId,
+        is_published: true,
+        published_at: new Date().toISOString(),
+      }))
+
+      const { error: publishError } = await supabase
+        .from('report_cards')
+        .upsert(records, { onConflict: 'student_id,term_id' })
+      if (publishError) throw publishError
+
+      setSuccess(list.length === 1 ? 'Report card published!' : `${list.length} report cards published!`)
+      await fetchStudentsData()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError('Failed to publish.')
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  // Take report cards back from parents (they go back to draft)
+  const unpublishStudents = async (list) => {
+    if (!window.confirm(
+      list.length === 1
+        ? 'Take this report card back? The parent will no longer see it.'
+        : `Take ${list.length} report cards back? Parents will no longer see them.`
+    )) return
+    setPublishing(true)
+    setError('')
+    try {
+      const { error: unpublishError } = await supabase
+        .from('report_cards')
+        .update({ is_published: false, published_at: null })
+        .in('student_id', list.map(s => s.id))
+        .eq('term_id', currentTerm.id)
+      if (unpublishError) throw unpublishError
+
+      setSuccess('Report card(s) taken back.')
+      await fetchStudentsData()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError('Failed to take the report cards back.')
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   return (
     <AdminLayout>
@@ -344,6 +446,7 @@ const HeadReportCards = ({ layout: Layout }) => {
                     {publishedCount} of {students.length} published
                   </p>
                 </div>
+                <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={handlePublishAll}
                   disabled={publishing || students.length === 0}
@@ -352,7 +455,34 @@ const HeadReportCards = ({ layout: Layout }) => {
                   <CheckCircle size={15} />
                   {publishing ? 'Publishing...' : 'Publish All Report Cards'}
                 </button>
+                {publishedCount > 0 && (
+                  <button
+                    onClick={() => unpublishStudents(students.filter(s => reportCards[s.id]?.is_published))}
+                    disabled={publishing}
+                    className="text-sm font-semibold px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-60"
+                  >
+                    Unpublish all
+                  </button>
+                )}
+                <button
+                  onClick={() => setPrintIds(students.map(s => s.id))}
+                  disabled={students.length === 0}
+                  className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition disabled:opacity-60"
+                >
+                  <Printer size={15} />
+                  Print class
+                </button>
+                </div>
               </div>
+
+              {issues.length > 0 && (
+                <div className="mx-6 mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+                  <p className="font-semibold mb-1">Before you publish</p>
+                  <ul className="list-disc ml-5 space-y-0.5">
+                    {issues.map(i => <li key={i}>{i}</li>)}
+                  </ul>
+                </div>
+              )}
 
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -365,6 +495,7 @@ const HeadReportCards = ({ layout: Layout }) => {
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Promotion</th>
                       <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
                       <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">View</th>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -434,6 +565,23 @@ const HeadReportCards = ({ layout: Layout }) => {
                               <Eye size={15} />
                             </button>
                           </td>
+                          <td className="px-4 py-3 text-center">
+                            {rc?.is_published ? (
+                              <button
+                                onClick={() => unpublishStudents([student])}
+                                className="text-xs text-red-500 hover:text-red-700 underline"
+                              >
+                                Unpublish
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => publishStudents([student])}
+                                className="text-xs text-green-600 hover:text-green-700 underline"
+                              >
+                                Publish
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       )
                     })}
@@ -443,6 +591,17 @@ const HeadReportCards = ({ layout: Layout }) => {
             </div>
           )}
         </>
+      )}
+
+      {/* Print the whole class */}
+      {printIds && currentTerm && (
+        <ReportCardView
+          studentIds={printIds}
+          batchTitle={`${selectedClass?.name} · ${currentTerm.name}`}
+          termId={currentTerm.id}
+          sessionId={currentSession?.id}
+          onClose={() => setPrintIds(null)}
+        />
       )}
 
       {/* Report Card Modal */}
