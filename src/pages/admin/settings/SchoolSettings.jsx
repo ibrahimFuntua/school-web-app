@@ -370,13 +370,21 @@ const [resetSuccess, setResetSuccess] = useState(false)
         .from('school-assets')
         .getPublicUrl(fileName)
 
-      // Save to schools table
-      await supabase
-        .from('schools')
-        .update({ logo_url: publicUrl })
-        .eq('id', schoolId)
+      // The file name never changes, so add a version to the link;
+      // otherwise browsers keep showing the old logo
+      const versionedUrl = `${publicUrl}?v=${Date.now()}`
 
-      setLogoPreview(publicUrl)
+      // Save to schools table
+      const { error: saveError } = await supabase
+        .from('schools')
+        .update({ logo_url: versionedUrl })
+        .eq('id', schoolId)
+      if (saveError) throw saveError
+
+      // Receipts and report cards read the logo from here
+      useAuthStore.setState({ schoolLogo: versionedUrl })
+
+      setLogoPreview(versionedUrl)
       setSuccess('Logo uploaded successfully!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
@@ -388,7 +396,7 @@ const [resetSuccess, setResetSuccess] = useState(false)
 
   // Image compression function
   const compressImage = (file, maxWidth, maxHeight, quality) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const img = new Image()
@@ -407,10 +415,21 @@ const [resetSuccess, setResetSuccess] = useState(false)
 
         canvas.width = width
         canvas.height = height
+        // A white background, so a transparent logo does not turn black as a JPEG
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
         ctx.drawImage(img, 0, 0, width, height)
         URL.revokeObjectURL(url)
 
-        canvas.toBlob(resolve, 'image/jpeg', quality)
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('Could not process the image.'))),
+          'image/jpeg',
+          quality
+        )
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        reject(new Error('That file could not be read as an image.'))
       }
       img.src = url
     })
