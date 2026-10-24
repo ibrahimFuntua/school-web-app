@@ -157,6 +157,7 @@ const StudentForm = () => {
         admission_number: admissionNumber,
         student_id: studentId,
         arm_id: form.arm_id || null,
+        date_of_birth: form.date_of_birth || null,
         department_id: (form.section === departmentSectionName && departmentMode === 'by_student') ? (form.department_id || null) : null,
         status: 'Active',
       }
@@ -325,8 +326,8 @@ if (insertError) throw insertError
               <input name="last_name" value={form.last_name} onChange={handleChange} required placeholder="Last name" className={inputClass} />
             </div>
             <div>
-              <label className={labelClass}>Date of Birth <span className="text-red-500">*</span></label>
-              <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={handleChange} required className={inputClass} />
+              <label className={labelClass}>Date of Birth</label>
+              <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={handleChange} className={inputClass} />
             </div>
             <div>
               <label className={labelClass}>Gender <span className="text-red-500">*</span></label>

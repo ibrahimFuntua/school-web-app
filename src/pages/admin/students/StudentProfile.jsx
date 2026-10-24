@@ -95,7 +95,7 @@ const StudentProfile = () => {
           first_name: form.first_name,
           middle_name: form.middle_name,
           last_name: form.last_name,
-          date_of_birth: form.date_of_birth,
+          date_of_birth: form.date_of_birth || null,
           gender: form.gender,
           state_of_origin: form.state_of_origin,
           lga_of_origin: form.lga_of_origin,
