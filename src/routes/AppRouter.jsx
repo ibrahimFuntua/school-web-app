@@ -15,6 +15,7 @@ import ChangePassword from '../pages/auth/ChangePassword'
 import AdminDashboard from '../pages/admin/Dashboard'
 import StudentList from '../pages/admin/students/StudentList'
 import StudentForm from '../pages/admin/students/StudentForm'
+import ImportStudents from '../pages/admin/students/ImportStudents'
 import StudentProfile from '../pages/admin/students/StudentProfile'
 import StaffList from '../pages/admin/staff/StaffList'
 import StaffForm from '../pages/admin/staff/StaffForm'
@@ -106,6 +107,11 @@ const AppRouter = () => {
         <Route path="/admin/students/enroll" element={
           <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
             <StudentForm />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/students/import" element={
+          <ProtectedRoute allowedRoles={['Admin',  'Headmaster']}>
+            <ImportStudents />
           </ProtectedRoute>
         } />
         <Route path="/admin/students/:id" element={

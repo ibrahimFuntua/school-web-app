@@ -113,6 +113,8 @@ const StudentProfile = () => {
           session_id: form.session_id,
           admission_date: form.admission_date,
           status: form.status,
+          withdrawn_on: form.status === 'Withdrawn' ? (form.withdrawn_on || null) : null,
+          withdrawal_reason: form.status === 'Withdrawn' ? (form.withdrawal_reason || null) : null,
           guardian_name: form.guardian_name,
           guardian_relationship: form.guardian_relationship,
           guardian_phone: form.guardian_phone,
@@ -191,6 +193,35 @@ const StudentProfile = () => {
         </div>
       )}
 
+      {/* Emergency & medical: the first thing needed in an emergency */}
+      <div className="mb-5 max-w-3xl bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+        <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Emergency &amp; medical</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-xs text-amber-600">Emergency contact</p>
+            <p className="text-gray-800 font-medium">
+              {form.emergency_contact_name || form.emergency_contact_phone
+                ? `${form.emergency_contact_name || '—'}${form.emergency_contact_phone ? ` · ${form.emergency_contact_phone}` : ''}`
+                : 'Not recorded'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-amber-600">Medical conditions</p>
+            <p className="text-gray-800 font-medium">{form.medical_conditions || 'None recorded'}</p>
+          </div>
+        </div>
+        {(form.blood_group || form.genotype) && (
+          <p className="text-xs text-amber-700 mt-2">
+            Blood group: {form.blood_group || '—'} · Genotype: {form.genotype || '—'}
+          </p>
+        )}
+        {form.status === 'Withdrawn' && (
+          <p className="text-xs text-red-600 mt-2">
+            Withdrawn{form.withdrawn_on ? ` on ${form.withdrawn_on}` : ''}{form.withdrawal_reason ? ` · ${form.withdrawal_reason}` : ''}
+          </p>
+        )}
+      </div>
+
       <form onSubmit={handleSave} className="space-y-6 max-w-3xl">
 
         {/* Personal Information */}
@@ -258,11 +289,23 @@ const StudentProfile = () => {
             <div>
               <label className={labelClass}>Status</label>
               <select name="status" value={form.status || ''} onChange={handleChange} className={inputClass}>
-                {['Active','Promoted','Demoted','Withdrawn','Graduated'].map(s => (
+                {['Active','Withdrawn','Graduated'].map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
+            {form.status === 'Withdrawn' && (
+              <>
+                <div>
+                  <label className={labelClass}>Withdrawn On</label>
+                  <input type="date" name="withdrawn_on" value={form.withdrawn_on || ''} onChange={handleChange} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Reason for Withdrawal</label>
+                  <input name="withdrawal_reason" value={form.withdrawal_reason || ''} onChange={handleChange} placeholder="e.g. Relocated" className={inputClass} />
+                </div>
+              </>
+            )}
           </div>
         </div>
 

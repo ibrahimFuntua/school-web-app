@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AdminLayout from '../../../components/layout/AdminLayout'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '../../../store/authStore'
@@ -22,6 +22,9 @@ const StudentForm = () => {
   const [arms, setArms] = useState([])
   const [sessions, setSessions] = useState([])
   const [parentCredentials, setParentCredentials] = useState(null)
+  const [showMore, setShowMore] = useState(false)
+  const [duplicates, setDuplicates] = useState([])
+  const allowDuplicateRef = useRef(false)
 
   const generateTempPassword = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
@@ -102,6 +105,11 @@ const StudentForm = () => {
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value })
+    // Changing the name or date of birth makes an earlier duplicate warning out of date
+    if (['first_name', 'last_name', 'date_of_birth'].includes(e.target.name)) {
+      setDuplicates([])
+      allowDuplicateRef.current = false
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -116,13 +124,32 @@ const StudentForm = () => {
     setSaving(true)
 
     try {
+      // Warn if a child with the same name and date of birth is already on the register
+      if (!allowDuplicateRef.current) {
+        const esc = (v) => v.trim().replace(/[\\%_]/g, '\\$&')
+        const { data: dupes } = await supabase
+          .from('students')
+          .select('id, first_name, last_name, admission_number, status, classes(name)')
+          .eq('school_id', schoolId)
+          .eq('date_of_birth', form.date_of_birth)
+          .ilike('first_name', esc(form.first_name))
+          .ilike('last_name', esc(form.last_name))
+        if (dupes && dupes.length > 0) {
+          setDuplicates(dupes)
+          setSaving(false)
+          return
+        }
+      }
+      allowDuplicateRef.current = false
+      setDuplicates([])
+
       // Generate admission number
       const { data: admissionNumber, error: admError } = await supabase
         .rpc('generate_admission_number', { p_school_id: schoolId })
       if (admError) throw admError
 
       // Generate student ID (simple unique ID)
-      const studentId = `STD-${Date.now()}`
+      const studentId = `STD-${Date.now()}-${Math.floor(Math.random() * 1000)}`
 
       const payload = {
         ...form,
@@ -265,6 +292,20 @@ if (insertError) throw insertError
 
       <form onSubmit={handleSubmit} className="space-y-8 max-w-3xl">
 
+        {/* Optional extra details are hidden until needed */}
+        <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-5 py-3">
+          <p className="text-sm text-gray-500">
+            Nationality, state of origin, religion, blood group, genotype and home address are optional.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowMore(v => !v)}
+            className="text-sm font-medium text-primary hover:underline shrink-0 ml-4"
+          >
+            {showMore ? 'Hide' : 'Show'}
+          </button>
+        </div>
+
         {/* Personal Information */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
@@ -294,6 +335,7 @@ if (insertError) throw insertError
                 {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
             </div>
+            {showMore && (<>
             <div>
               <label className={labelClass}>Nationality</label>
               <input name="nationality" value={form.nationality} onChange={handleChange} className={inputClass} />
@@ -328,10 +370,11 @@ if (insertError) throw insertError
                 ))}
               </select>
             </div>
+            </>)}
           </div>
         </div>
 
-        {/* Address */}
+        {showMore && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
             Address
@@ -351,6 +394,7 @@ if (insertError) throw insertError
             </div>
           </div>
         </div>
+        )}
 
         {/* Academic Information */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -485,6 +529,40 @@ if (insertError) throw insertError
             </div>
           </div>
         </div>
+
+        {duplicates.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+            <p className="text-sm font-semibold text-amber-800 mb-2">
+              A child with this name and date of birth is already on the register:
+            </p>
+            <ul className="text-sm text-amber-700 space-y-1 mb-3">
+              {duplicates.map(d => (
+                <li key={d.id}>
+                  {d.first_name} {d.last_name} · {d.admission_number} · {d.classes?.name || 'No class'} · {d.status}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-amber-700 mb-3">
+              If this is a different child, you can still enrol.
+            </p>
+            <div className="flex gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => navigate('/admin/students')}
+                className="px-5 py-2 rounded-lg border border-amber-300 text-sm text-amber-800 hover:bg-amber-100 transition"
+              >
+                Go back to the list
+              </button>
+              <button
+                type="submit"
+                onClick={() => { allowDuplicateRef.current = true }}
+                className="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition"
+              >
+                This is a different child, enrol anyway
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Submit */}
         <div className="flex gap-3 pb-8">
